@@ -1,0 +1,8 @@
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+asyncpg==0.30.0
+pydantic==2.11.4
+pydantic-settings==2.9.1
+# test-only, kept in the same image so `make test` needs no extra container
+pytest==8.3.5
+httpx==0.28.1

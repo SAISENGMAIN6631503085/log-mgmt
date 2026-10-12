@@ -1,0 +1,27 @@
+# Vector: receive syslog from devices and forward it to the backend as JSON.
+# Parsing into the common schema happens in the backend normalizers (unit-testable Python),
+# so Vector only does transport + light enrichment.
+sources:
+  syslog_udp:
+    type: syslog
+    mode: udp
+    address: 0.0.0.0:514
+  syslog_tcp:
+    type: syslog
+    mode: tcp
+    address: 0.0.0.0:514
+
+sinks:
+  backend:
+    type: http
+    inputs: [syslog_udp, syslog_tcp]
+    uri: http://backend:8000/api/ingest/syslog
+    method: post
+    encoding:
+      codec: json
+    # Don't block startup on the backend endpoint; it's checked by real traffic instead.
+    healthcheck:
+      enabled: false
+    batch:
+      max_events: 500
+      timeout_secs: 1

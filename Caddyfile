@@ -1,0 +1,17 @@
+# Single entry point for the whole system; the only service with published HTTP ports.
+{$SITE_ADDRESS:localhost} {
+	# "internal" = self-signed (appliance); an email address = Let's Encrypt (SaaS)
+	tls {$CADDY_TLS:internal}
+
+	encode gzip
+
+	# Backend owns /api/* and /health; everything else is the React SPA.
+	@backend path /api/* /health
+	handle @backend {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		reverse_proxy frontend:80
+	}
+}

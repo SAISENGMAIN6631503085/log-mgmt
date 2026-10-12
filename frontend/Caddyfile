@@ -1,0 +1,8 @@
+# Internal static server for the built SPA; TLS is handled by the edge Caddy.
+:80 {
+	root * /srv
+	encode gzip
+	# Unknown paths fall back to index.html so client-side routes survive a reload
+	try_files {path} /index.html
+	file_server
+}
