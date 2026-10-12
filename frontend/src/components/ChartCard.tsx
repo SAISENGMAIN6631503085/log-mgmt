@@ -1,4 +1,6 @@
 import { ReactNode, useState } from "react";
+import { Empty } from "./Badge";
+import { Icon } from "./Icon";
 
 type Column<T> = { key: keyof T & string; label: string; num?: boolean; format?: (v: T[keyof T]) => string };
 
@@ -6,6 +8,7 @@ type Column<T> = { key: keyof T & string; label: string; num?: boolean; format?:
  *  (for screen readers, colour-blind readers, and anyone who wants exact values). */
 export function ChartCard<T extends Record<string, unknown>>(props: {
   title: string;
+  subtitle?: string;
   rows: T[];
   columns: Column<T>[];
   children: ReactNode;
@@ -15,15 +18,20 @@ export function ChartCard<T extends Record<string, unknown>>(props: {
   return (
     <section className="card">
       <div className="card-head">
-        <h2>{props.title}</h2>
-        <button className="link" onClick={() => setAsTable(!asTable)} aria-pressed={asTable}>
-          {asTable ? "Chart" : "Table"}
-        </button>
+        <div>
+          <h2>{props.title}</h2>
+          {props.subtitle && <div className="sub">{props.subtitle}</div>}
+        </div>
+        {!props.empty && (
+          <button className="ghost sm" onClick={() => setAsTable(!asTable)} aria-pressed={asTable}>
+            {asTable ? "Show chart" : "Show table"}
+          </button>
+        )}
       </div>
       {props.empty ? (
-        <p className="muted">No events in this time range.</p>
+        <Empty icon={<Icon name="inbox" />} title="No events">Nothing in this time range.</Empty>
       ) : asTable ? (
-        <div className="table-wrap">
+        <div className="card-body flush table-wrap">
           <table>
             <thead>
               <tr>{props.columns.map((c) => <th key={c.key} className={c.num ? "num" : ""}>{c.label}</th>)}</tr>
@@ -40,7 +48,7 @@ export function ChartCard<T extends Record<string, unknown>>(props: {
           </table>
         </div>
       ) : (
-        props.children
+        <div className="card-body">{props.children}</div>
       )}
     </section>
   );

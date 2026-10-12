@@ -23,7 +23,9 @@ from urllib.request import Request, urlopen
 
 USERS = ["alice", "bob", "carol", "dave", "erin", "frank"]
 INTERNAL = [f"10.0.{s}.{h}" for s in (1, 2, 3) for h in range(10, 60, 7)]
-EXTERNAL = [f"198.51.100.{h}" for h in range(5, 60, 6)]
+# Background users come from many addresses, so their occasional failed logins (a typo here
+# and there) almost never reach 5 per IP in 5 minutes. Only the staged attacks should alert.
+EXTERNAL = [f"198.51.100.{h}" for h in range(1, 255)] + [f"192.0.2.{h}" for h in range(1, 255)]
 ATTACKERS = [f"203.0.113.{h}" for h in range(100, 200, 9)]
 
 

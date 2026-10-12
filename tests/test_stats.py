@@ -106,3 +106,31 @@ def test_tenants_list_is_admin_only(env):
     admin = {"Authorization": f"Bearer {create_token(Claims(sub='x', role='admin', tenant=t))}"}
     assert client.get("/api/tenants", headers=viewer).status_code == 403
     assert "demoA" in client.get("/api/tenants", headers=admin).json()
+
+
+def test_timeline_buckets_split_by_severity(env):
+    client, t, _ = env
+    d = get(client, t).json()
+    for p in d["timeline"]:
+        assert p["n"] == p["critical"] + p["high"] + p["medium"] + p["low"] + p["unknown"]
+    assert sum(p["critical"] for p in d["timeline"]) == 1
+    assert sum(p["auth_failures"] for p in d["timeline"]) == 2
+
+
+def test_previous_period_totals(env):
+    client, t, _ = env
+    # Last hour holds 3 events; the hour before it holds none (the 4th event is 200 min ago).
+    one_hour_ago = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    d = get(client, t, **{"from": one_hour_ago}).json()
+    assert d["totals"]["events"] == 3 and d["previous"]["events"] == 0
+    # 24h window: the previous 24h are empty.
+    assert get(client, t).json()["previous"] == {"events": 0, "auth_failures": 0, "high_severity": 0}
+
+
+def test_source_timeline_matches_by_source(env):
+    client, t, _ = env
+    d = get(client, t).json()
+    per_source: dict = {}
+    for c in d["source_timeline"]:
+        per_source[c["source"]] = per_source.get(c["source"], 0) + c["n"]
+    assert per_source == {r["key"]: r["n"] for r in d["by_source"]}

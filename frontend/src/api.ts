@@ -134,11 +134,24 @@ export type Stats = {
   to: string;
   bucket_seconds: number;
   totals: { events: number; auth_failures: number; high_severity: number; unique_src_ips: number; open_alerts: number };
-  timeline: { t: string; n: number }[];
+  previous: { events: number; auth_failures: number; high_severity: number };
+  timeline: TimelinePoint[];
+  source_timeline: { source: string; t: string; n: number }[];
   by_source: { key: string; n: number }[];
   by_severity: { key: string; n: number }[];
   top_src_ips: { key: string; n: number; auth_failures: number }[];
   top_event_types: { key: string; n: number }[];
+};
+
+export type TimelinePoint = {
+  t: string;
+  n: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  unknown: number;
+  auth_failures: number;
 };
 
 export const SOURCES = ["firewall", "network", "api", "crowdstrike", "aws", "m365", "ad"] as const;

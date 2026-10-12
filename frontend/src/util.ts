@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 
 // --- time ranges (shared by dashboard and search) ---
 export const RANGES = [
-  { key: "1h", label: "Last hour", ms: 3600e3 },
-  { key: "24h", label: "Last 24 hours", ms: 24 * 3600e3 },
-  { key: "7d", label: "Last 7 days", ms: 7 * 24 * 3600e3 },
+  { key: "1h", label: "1h", long: "last hour", ms: 3600e3 },
+  { key: "24h", label: "24h", long: "last 24 hours", ms: 24 * 3600e3 },
+  { key: "7d", label: "7d", long: "last 7 days", ms: 7 * 24 * 3600e3 },
 ] as const;
 export type RangeKey = (typeof RANGES)[number]["key"];
 
@@ -54,7 +54,7 @@ export function go(page: string, params: Record<string, string> = {}) {
 // --- theme tokens for SVG charts ---
 // Recharts writes colours as SVG attributes, where var(--x) doesn't resolve, so read the
 // computed token values and re-read them when the OS theme changes.
-const TOKENS = ["--accent", "--text-2", "--muted", "--grid", "--axis", "--surface"] as const;
+const TOKENS = ["--chart", "--text", "--text-2", "--muted", "--grid", "--axis", "--surface"] as const;
 export type Tokens = Record<(typeof TOKENS)[number], string>;
 
 function readTokens(): Tokens {
@@ -77,3 +77,33 @@ export function useTokens(): Tokens {
   }, []);
   return tokens;
 }
+
+// --- theme: light or dark. First visit follows the OS; after that the viewer's choice sticks. ---
+export type Theme = "light" | "dark";
+
+export function loadTheme(): Theme {
+  try {
+    const t = localStorage.getItem("lm_theme");
+    if (t === "light" || t === "dark") return t;
+  } catch {
+    /* storage blocked: fall through to the OS setting */
+  }
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+export function applyTheme(theme: Theme, remember: boolean) {
+  document.documentElement.dataset.theme = theme;
+  if (!remember) return;
+  try {
+    localStorage.setItem("lm_theme", theme);
+  } catch {
+    /* per-viewer convenience only */
+  }
+}
+
+// Plain names for the source codes used in the API (?source=ad etc.)
+export const SOURCE_LABELS: Record<string, string> = {
+  firewall: "Firewall", network: "Network device", api: "Application", crowdstrike: "CrowdStrike",
+  aws: "AWS", m365: "Microsoft 365", ad: "Active Directory",
+};
+export const sourceLabel = (s: string) => SOURCE_LABELS[s] ?? s;

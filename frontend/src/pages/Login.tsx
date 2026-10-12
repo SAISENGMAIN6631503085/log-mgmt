@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { api, saveSession, User } from "../api";
+import { Icon } from "../components/Icon";
 
 export function Login({ onLogin }: { onLogin: (user: User) => void }) {
   const [username, setUsername] = useState("");
@@ -26,21 +27,31 @@ export function Login({ onLogin }: { onLogin: (user: User) => void }) {
   }
 
   return (
-    <div className="login">
-      <h1>Log Management</h1>
-      <form onSubmit={submit} className="card">
-        <label>
-          Username
-          <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus required />
-        </label>
-        <label>
-          Password
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
-        </label>
-        {error && <p className="error" role="alert">{error}</p>}
-        <button className="primary" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
-        <p className="hint">Demo users: admin, viewerA, viewerB (passwords in your .env).</p>
-      </form>
+    <div className="login-page">
+      <div className="card login-card">
+        <div className="brand">
+          <span className="brand-mark"><Icon name="logo" /></span>
+          <div>
+            <div className="brand-name">Log Management</div>
+            <div className="brand-sub">Security events</div>
+          </div>
+        </div>
+        <h1>Sign in</h1>
+        <p className="lead">Use your account to view your organization's events.</p>
+        <form onSubmit={submit}>
+          <label className="field">
+            Username
+            <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus required />
+          </label>
+          <label className="field">
+            Password
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+          </label>
+          {error && <div className="error-banner" role="alert"><Icon name="alert" size={16} />{error}</div>}
+          <button className="primary" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+        </form>
+        <p className="hint">Demo accounts: admin, viewerA, viewerB</p>
+      </div>
     </div>
   );
 }

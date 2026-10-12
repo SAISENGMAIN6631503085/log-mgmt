@@ -1,12 +1,26 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, LogEvent, SOURCES } from "../api";
-import { SeverityBadge } from "../components/Badge";
-import { fmtTime, go, RangeKey, RANGES, rangeParams, Route } from "../util";
+import { Empty, SeverityBadge } from "../components/Badge";
+import { Icon } from "../components/Icon";
+import { fmtTime, go, RangeKey, RANGES, rangeParams, Route, SOURCE_LABELS } from "../util";
 
 // Filters live in the URL hash (#/events?src_ip=...), so links from the dashboard and
 // alerts pages land on a ready-made search, and a search can be bookmarked or shared.
 const FILTER_KEYS = ["range", "source", "severity_min", "src_ip", "user", "host", "event_type", "tag", "q"] as const;
 type Filters = Partial<Record<(typeof FILTER_KEYS)[number], string>>;
+
+// Tags in plain words. The value sent to the API stays the technical tag.
+export const TAG_LABELS: Record<string, string> = {
+  auth_failure: "Failed sign-in",
+  blocked: "Blocked by firewall",
+  edr_detection: "Malware / threat detected",
+  quarantined: "File quarantined",
+  access_denied: "Access denied",
+  root_activity: "Root account used",
+  account_lockout: "Account locked out",
+  mail_forwarding_rule: "Email forwarding rule",
+};
+
 
 function filtersFrom(params: URLSearchParams): Filters {
   const f: Filters = {};
@@ -19,7 +33,7 @@ function filtersFrom(params: URLSearchParams): Filters {
 
 type Page = { events: LogEvent[]; next_cursor: string | null };
 
-export function Events({ route, tenant }: { route: Route; tenant: string | undefined }) {
+export function Events({ route, tenant, tenantName }: { route: Route; tenant: string | undefined; tenantName: string }) {
   const applied = filtersFrom(route.params);
   const appliedKey = route.params.toString();
   const [draft, setDraft] = useState<Filters>(applied);
@@ -59,124 +73,203 @@ export function Events({ route, tenant }: { route: Route; tenant: string | undef
   }
 
   const set = (k: keyof Filters) => (e: { target: { value: string } }) => setDraft({ ...draft, [k]: e.target.value });
+  const activeCount = Object.keys(applied).filter((k) => k !== "range").length;
+  const rangeLong = RANGES.find((r) => r.key === (applied.range ?? "24h"))!.long;
 
   return (
     <>
-      <h1>Search events</h1>
-      <form className="filters" onSubmit={submit}>
-        <label>
-          Time range
-          <select value={draft.range ?? "24h"} onChange={set("range")}>
-            {RANGES.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
-          </select>
-        </label>
-        <label>
-          Source
-          <select value={draft.source ?? ""} onChange={set("source")}>
-            <option value="">All</option>
-            {SOURCES.map((s) => <option key={s}>{s}</option>)}
-          </select>
-        </label>
-        <label>
-          Min severity
-          <select value={draft.severity_min ?? ""} onChange={set("severity_min")}>
-            <option value="">Any</option>
-            {[3, 5, 7, 9].map((n) => <option key={n} value={n}>{n}+</option>)}
-          </select>
-        </label>
-        <label>
-          Tag
-          <select value={draft.tag ?? ""} onChange={set("tag")}>
-            <option value="">Any</option>
-            {["auth_failure", "blocked", "edr_detection", "quarantined", "access_denied", "root_activity",
-              "account_lockout", "mail_forwarding_rule"].map((t) => <option key={t}>{t}</option>)}
-          </select>
-        </label>
-        <label>
-          Source IP / CIDR
-          <input value={draft.src_ip ?? ""} onChange={set("src_ip")} placeholder="10.0.0.0/8" size={14} />
-        </label>
-        <label>
-          User
-          <input value={draft.user ?? ""} onChange={set("user")} size={12} />
-        </label>
-        <label>
-          Event type
-          <input value={draft.event_type ?? ""} onChange={set("event_type")} size={12} />
-        </label>
-        <label>
-          Text
-          <input value={draft.q ?? ""} onChange={set("q")} placeholder="mimikatz" size={14} />
-        </label>
-        <button className="primary" type="submit">Search</button>
-        <button type="button" onClick={() => go("events")}>Clear</button>
-      </form>
-
-      {error && <p className="error" role="alert">{error}</p>}
-
-      <section className="card">
-        <div className="card-head">
-          <h2>{events.length} event{events.length === 1 ? "" : "s"}{cursor ? "+" : ""}</h2>
-          <span className="muted">Times shown in your local time zone</span>
+      <header className="page-header">
+        <div>
+          <h1>Search events</h1>
+          <p>Find any event in <strong>{tenantName}</strong>, from all sources. Click a row to see everything about it.</p>
         </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Time</th><th>Source</th><th>Severity</th><th>Action</th><th>Event type</th>
-                <th>Source IP</th><th>User</th><th>Host</th>
-              </tr>
-            </thead>
-            <tbody>
-              {events.map((e) => (
-                <tr key={e.id} className={`clickable ${selected?.id === e.id ? "selected" : ""}`}
-                    onClick={() => setSelected(selected?.id === e.id ? null : e)}>
-                  <td>{fmtTime(e["@timestamp"])}</td>
-                  <td>{e.source}</td>
-                  <td><SeverityBadge severity={e.severity} /></td>
-                  <td>{e.action ?? ""}</td>
-                  <td>{e.event_type ?? ""}</td>
-                  <td>{e.src_ip ? <code>{e.src_ip}</code> : ""}</td>
-                  <td>{e.user ?? ""}</td>
-                  <td>{e.host ?? ""}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {!loading && events.length === 0 && !error && <p className="muted">No events match these filters.</p>}
-        {loading && <p className="muted">Loading…</p>}
-        {cursor && !loading && (
-          <p><button onClick={() => fetchPage(cursor)}>Load more</button></p>
-        )}
-      </section>
+      </header>
+      <div className="page-body">
+        <form className="card filterbar" onSubmit={submit}>
+          <label className="field">
+            When
+            <select value={draft.range ?? "24h"} onChange={set("range")}>
+              {RANGES.map((r) => <option key={r.key} value={r.key}>{r.long[0].toUpperCase() + r.long.slice(1)}</option>)}
+            </select>
+          </label>
+          <label className="field">
+            Source
+            <select value={draft.source ?? ""} onChange={set("source")}>
+              <option value="">All sources</option>
+              {SOURCES.map((s) => <option key={s} value={s}>{SOURCE_LABELS[s]}</option>)}
+            </select>
+          </label>
+          <label className="field">
+            How serious
+            <select value={draft.severity_min ?? ""} onChange={set("severity_min")}>
+              <option value="">Any</option>
+              <option value="4">Medium and above (4+)</option>
+              <option value="7">High and above (7+)</option>
+              <option value="9">Critical only (9+)</option>
+            </select>
+          </label>
+          <label className="field">
+            Kind of event
+            <select value={draft.tag ?? ""} onChange={set("tag")}>
+              <option value="">Any</option>
+              {Object.entries(TAG_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+          <label className="field">
+            IP address or range
+            <input value={draft.src_ip ?? ""} onChange={set("src_ip")} placeholder="203.0.113.50 or 10.0.0.0/8" />
+          </label>
+          <label className="field">
+            User
+            <input value={draft.user ?? ""} onChange={set("user")} placeholder="administrator" />
+          </label>
+          <label className="field">
+            Event name
+            <input value={draft.event_type ?? ""} onChange={set("event_type")} placeholder="e.g. logon_failure" />
+          </label>
+          <label className="field">
+            Contains text
+            <input value={draft.q ?? ""} onChange={set("q")} placeholder="Any word, e.g. mimikatz" />
+          </label>
+          <div className="actions">
+            <button className="primary" type="submit"><Icon name="search" size={16} />Search</button>
+            <button type="button" className="ghost" onClick={() => go("events")}>Reset</button>
+          </div>
+        </form>
 
-      {selected && <EventDetail event={selected} />}
+        {error && <div className="error-banner" role="alert"><Icon name="alert" size={16} />{error}</div>}
+
+        <section className="card">
+          <div className="results-head">
+            <div>
+              <h2>{cursor ? `Showing the newest ${events.length} events` : `${events.length} event${events.length === 1 ? "" : "s"}`}</h2>
+              <div className="sub" style={{ color: "var(--text-2)", fontSize: 12.5 }}>
+                {rangeLong[0].toUpperCase() + rangeLong.slice(1)}{activeCount ? ` · ${activeCount} filter${activeCount > 1 ? "s" : ""} on` : ""} · times shown in your time zone
+              </div>
+            </div>
+          </div>
+          {events.length > 0 && (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Time</th><th>Severity</th><th>Event</th><th>IP address</th><th>User or device</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {events.map((e) => (
+                    <tr key={e.id} className={`clickable ${selected?.id === e.id ? "selected" : ""}`} onClick={() => setSelected(e)}>
+                      <td className="time-cell">
+                        {new Date(e["@timestamp"]).toLocaleTimeString()}
+                        <span>{new Date(e["@timestamp"]).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
+                      </td>
+                      <td><SeverityBadge severity={e.severity} /></td>
+                      <td className="event-cell">
+                        {e.event_type ?? "(no event name)"}
+                        {/* Second line: where it came from, plus any flags in plain words */}
+                        <span>{[SOURCE_LABELS[e.source] ?? e.source, ...e._tags.map((t) => TAG_LABELS[t] ?? t)].join(" · ")}</span>
+                      </td>
+                      <td>{e.src_ip ? <code>{e.src_ip}</code> : ""}</td>
+                      <td className="clip">{e.user ?? e.host ?? ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {!loading && events.length === 0 && !error && (
+            <Empty icon={<Icon name="filter" />} title="No matching events">Try a longer time range, or remove a filter.</Empty>
+          )}
+          {loading && events.length === 0 && <div className="skeleton" style={{ height: 240, margin: 16 }} />}
+          {cursor && (
+            <div className="results-foot">
+              <button onClick={() => fetchPage(cursor)} disabled={loading}>{loading ? "Loading…" : "Show 100 older events"}</button>
+            </div>
+          )}
+        </section>
+      </div>
+
+      {selected && <EventDrawer event={selected} onClose={() => setSelected(null)} />}
     </>
   );
 }
 
-function EventDetail({ event }: { event: LogEvent }) {
-  // Show every non-empty normalized field (time and identity first), then the original
-  // payload exactly as received.
-  const first = ["@timestamp", "source", "vendor", "product", "event_type", "severity", "action", "user"];
-  const order = (k: string) => (first.includes(k) ? first.indexOf(k) : first.length);
-  const fields = Object.entries(event)
-    .filter(([k, v]) => k !== "raw" && v !== null && v !== "" && !(Array.isArray(v) && v.length === 0))
-    .sort(([a], [b]) => order(a) - order(b));
+const FIELD_LABELS: Partial<Record<keyof LogEvent, string>> = {
+  "@timestamp": "Time", source: "Source", vendor: "Vendor", product: "Product", event_type: "Event",
+  event_subtype: "Detail", action: "Action", rule_name: "Rule", rule_id: "Rule ID",
+  src_ip: "From IP", src_port: "From port", dst_ip: "To IP", dst_port: "To port", protocol: "Protocol",
+  url: "URL", http_method: "HTTP method", status_code: "HTTP status", user: "User", host: "Device",
+  process: "Program", cloud_account_id: "Account", cloud_region: "Region", cloud_service: "Service",
+};
+
+// Fields grouped the way an analyst reads an event; empty fields are hidden.
+const SECTIONS: { title: string; fields: (keyof LogEvent)[] }[] = [
+  { title: "What happened", fields: ["@timestamp", "source", "vendor", "product", "event_type", "event_subtype", "action", "rule_name", "rule_id"] },
+  { title: "Network", fields: ["src_ip", "src_port", "dst_ip", "dst_port", "protocol", "url", "http_method", "status_code"] },
+  { title: "Who and where", fields: ["user", "host", "process"] },
+  { title: "Cloud", fields: ["cloud_account_id", "cloud_region", "cloud_service"] },
+];
+
+function EventDrawer({ event, onClose }: { event: LogEvent; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const show = (v: unknown) => v !== null && v !== undefined && v !== "";
   return (
-    <section className="card detail">
-      <div className="card-head"><h2>Event {event.id}</h2></div>
-      <dl className="kv">
-        {fields.map(([k, v]) => (
-          <div key={k} style={{ display: "contents" }}>
-            <dt>{k}</dt>
-            <dd>{Array.isArray(v) ? v.join(", ") : String(v)}</dd>
+    <>
+      <div className="scrim" onClick={onClose} />
+      <aside className="drawer" role="dialog" aria-label={`Event ${event.id}`}>
+        <div className="drawer-head">
+          <div>
+            <div className="title">{event.event_type ?? "Event"}</div>
+            <div className="meta">
+              <SeverityBadge severity={event.severity} />
+              <span>{SOURCE_LABELS[event.source] ?? event.source}</span>·<span>{fmtTime(event["@timestamp"])}</span>·<span className="mono">#{event.id}</span>
+            </div>
           </div>
-        ))}
-      </dl>
-      <h2 style={{ marginBottom: 8 }}>Original log (raw)</h2>
-      <pre className="raw">{JSON.stringify(event.raw, null, 2)}</pre>
-    </section>
+          <button className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="x" /></button>
+        </div>
+        <div className="drawer-body">
+          {event._tags.length > 0 && (
+            <>
+              <div className="section-title">Flags</div>
+              <div>{event._tags.map((t) => <span key={t} className="chip" title={t}>{TAG_LABELS[t] ?? t}</span>)}</div>
+            </>
+          )}
+          {SECTIONS.map((s) => {
+            const fields = s.fields.filter((f) => show(event[f]));
+            if (!fields.length) return null;
+            return (
+              <div key={s.title}>
+                <div className="section-title">{s.title}</div>
+                <dl className="kv">
+                  {fields.map((f) => (
+                    <div key={f} style={{ display: "contents" }}>
+                      <dt title={f}>{FIELD_LABELS[f] ?? f}</dt>
+                      <dd>{f.endsWith("_ip") ? <code>{String(event[f])}</code>
+                        : f === "@timestamp" ? fmtTime(String(event[f]))
+                        : f === "source" ? SOURCE_LABELS[event.source] ?? event.source
+                        : String(event[f])}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            );
+          })}
+          {event.src_ip && (
+            <p style={{ margin: "16px 0 0" }}>
+              <button className="sm" onClick={() => go("events", { range: "7d", src_ip: event.src_ip! })}>
+                <Icon name="search" size={14} />All events from {event.src_ip}
+              </button>
+            </p>
+          )}
+          <div className="section-title">Original log, exactly as received</div>
+          <pre className="raw">{JSON.stringify(event.raw, null, 2)}</pre>
+        </div>
+      </aside>
+    </>
   );
 }
