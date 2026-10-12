@@ -1,17 +1,23 @@
 # Thin wrappers around docker compose so reviewers only need `make <target>`.
 COMPOSE := docker compose
 
-.PHONY: up down seed test logs ps health retention
+.PHONY: up down seed test logs ps health retention demo simulate
 
-# Create .env from the example on first run so `make up` works out of the box
+# Create .env from the example on first run so `make up` works out of the box. Secrets get
+# fresh random values (the backend refuses the example JWT_SECRET, and no two installs should
+# share secrets). sed -i.bak works with both GNU and BSD/macOS sed.
 .env:
 	cp .env.example .env
-	@echo "Created .env from .env.example - change the secrets before deploying."
+	@for var in POSTGRES_PASSWORD JWT_SECRET SYSLOG_INGEST_TOKEN; do \
+		sed -i.bak "s|^$$var=.*|$$var=$$(openssl rand -hex 32)|" .env; \
+	done; rm -f .env.bak
+	@echo "Created .env with random secrets. Review it (demo passwords, SITE_ADDRESS) before deploying."
 
 up: .env
 	$(COMPOSE) up -d --build --wait
-	@# The Caddyfile is a bind mount, so edits don't recreate the container; reload picks them up.
-	@$(COMPOSE) exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1
+	@# The Caddyfile is a single-file bind mount. Many editors save by replacing the file, which
+	@# leaves the container looking at the old (deleted) one, so restart Caddy to re-attach it.
+	@$(COMPOSE) restart caddy >/dev/null 2>&1
 	@$(MAKE) --no-print-directory health
 
 down:
@@ -28,6 +34,16 @@ test: .env
 # Drop event partitions older than RETENTION_DAYS now (the backend also does this hourly)
 retention: .env
 	$(COMPOSE) exec backend python -m app.retention
+
+# Load every sample (timestamps moved to "now") through syslog, the JSON API and file upload
+demo: .env
+	./samples/send_syslog.sh
+	python3 samples/post_logs.py --key lm_demoA_dev_key_change_me
+	python3 samples/post_logs.py --key lm_demoB_dev_key_change_me --mode file
+
+# Live traffic for both demo tenants, with a brute-force attack every 2 minutes (Ctrl-C to stop)
+simulate:
+	python3 samples/simulator.py
 
 logs:
 	$(COMPOSE) logs -f --tail=100

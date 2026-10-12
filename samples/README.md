@@ -16,3 +16,17 @@ but the data is synthetic and uses documentation IP ranges (192.0.2.0/24, 198.51
 
 `ad_security.csv` includes six failed logons (4625) from 203.0.113.50 within two minutes,
 which is enough to trigger the brute-force alert rule.
+
+## Demo scripts
+All scripts **move timestamps to "now"**, so the samples land inside the 7-day retention
+window on any day. The sample files themselves are dated 2026-10-12.
+
+| Script | What it does |
+|--------|--------------|
+| `send_syslog.sh` | Sends `firewall.log` and `network.log` to Vector (UDP 514; `-t` for TCP, `-h host`). Uses bash's `/dev/udp`, so no netcat is needed. |
+| `post_logs.py` | Sends the JSON/CSV samples to the API (`--mode json`) or as file uploads (`--mode file`). `--key` picks the tenant. Python standard library only. |
+| `simulator.py` | Continuous realistic traffic for every tenant key, plus a brute-force burst (6 failed AD logons from one IP) every `--attack-every` seconds, so alerts fire live. |
+
+`make demo` runs the first two for both demo tenants; `make simulate` runs the simulator.
+Running `post_logs.py` again creates new events (new timestamps), which is not counted as duplicates.
+Sending a file with the same timestamps twice is skipped as duplicates.

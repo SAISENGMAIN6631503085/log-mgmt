@@ -19,8 +19,8 @@
 		max_size 55MB
 	}
 
-	# Backend owns /api/* and /health; everything else is the React SPA.
-	@backend path /api/* /health
+	# Backend owns /api/*, /health and the interactive API docs; everything else is the React SPA.
+	@backend path /api/* /health /docs /openapi.json
 	handle @backend {
 		reverse_proxy backend:8000
 	}

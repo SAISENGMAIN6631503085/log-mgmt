@@ -40,9 +40,10 @@ services:
       - ./ingest/vector.yaml:/etc/vector/vector.yaml:ro
     command: ["--config", "/etc/vector/vector.yaml"]
     ports:
-      # Syslog from firewalls / network devices on the LAN
-      - "514:514/udp"
-      - "514:514/tcp"
+      # Syslog from firewalls / network devices. Syslog has no authentication, so on a public
+      # (SaaS) server set SYSLOG_BIND=127.0.0.1, or allow 514 only from device IPs in the cloud firewall.
+      - "${SYSLOG_BIND:-0.0.0.0}:514:514/udp"
+      - "${SYSLOG_BIND:-0.0.0.0}:514:514/tcp"
     depends_on:
       - backend
     restart: unless-stopped

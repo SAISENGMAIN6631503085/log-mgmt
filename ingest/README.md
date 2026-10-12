@@ -12,10 +12,12 @@ internal endpoint `http://backend:8000/api/ingest/syslog`.
   `/api/ingest/syslog` from outside, so only Vector, on the Docker network, can reach it.
 - If the backend is down, Vector retries, so messages are not lost during short outages.
 
-Try it:
+Try it: `./samples/send_syslog.sh`, or by hand:
 ```
-echo "<132>$(date -u '+%b %e %H:%M:%S') fw01 action=deny src=203.0.113.45 dst=10.0.0.10 dpt=22" | nc -u -w1 localhost 514
+echo "<132>$(date -u '+%b %e %H:%M:%S') fw01 action=deny src=203.0.113.45 dst=10.0.0.10 dpt=22" | nc -u -w1 127.0.0.1 514
 ```
+Port 514 is published on IPv4 at `SYSLOG_BIND` (default `0.0.0.0`; use `127.0.0.1` to keep it off
+a public network). Use `127.0.0.1` rather than `localhost`, which may resolve to IPv6 first.
 
 Note: with Docker Desktop (Mac/Windows), the sender IP that Vector sees is Docker's gateway, not
 the real device, so every message gets `DEFAULT_TENANT`. On a Linux VM the real sender IP is kept.
