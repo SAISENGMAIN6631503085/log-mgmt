@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Response
 
 from . import db
+from .routers import ingest
 
 
 @asynccontextmanager
@@ -13,6 +14,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Mini Log Management", lifespan=lifespan)
+app.include_router(ingest.router)
 
 
 @app.get("/health")

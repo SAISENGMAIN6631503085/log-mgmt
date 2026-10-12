@@ -1,15 +1,16 @@
-# Vector: receive syslog from devices and forward it to the backend as JSON.
-# Parsing into the common schema happens in the backend normalizers (unit-testable Python),
-# so Vector only does transport + light enrichment.
+# Vector: receive syslog from devices and forward raw lines to the backend as JSON.
+# We use the plain `socket` source (not `syslog`) on purpose: the backend's syslog parser
+# is unit-tested Python, and it gets the untouched line plus the sender IP, which it needs
+# to pick the tenant. Each event looks like {"message": "<134>Oct 12 ...", "host": "10.0.1.5", ...}.
 sources:
   syslog_udp:
-    type: syslog
+    type: socket
     mode: udp
     address: 0.0.0.0:514
   syslog_tcp:
-    type: syslog
+    type: socket
     mode: tcp
-    address: 0.0.0.0:514
+    address: 0.0.0.0:514   # newline-delimited, one message per line
 
 sinks:
   backend:
@@ -19,6 +20,13 @@ sinks:
     method: post
     encoding:
       codec: json
+    framing:
+      method: character_delimited   # a JSON array, which is what the endpoint expects
+      character_delimited:
+        delimiter: ","
+    request:
+      headers:
+        X-Ingest-Token: "${SYSLOG_INGEST_TOKEN}"
     # Don't block startup on the backend endpoint; it's checked by real traffic instead.
     healthcheck:
       enabled: false

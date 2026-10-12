@@ -26,6 +26,10 @@ Ingest must call `ensure_event_partition` for back-dated events.
 
 The schema field `user` is stored as the column `username`, because `USER` is a reserved word in SQL.
 
+- `app/routers/ingest.py` – ingestion endpoints (below)
+- `app/api_keys.py` – per-tenant `X-API-Key` auth (keys stored as SHA-256)
+- `app/events_store.py` – bulk insert with COPY, timestamp window check
+
 Tests live in `/tests` at the repo root; run them with `make test`.
 
 ## Normalizers (`app/normalizers/`)
@@ -53,3 +57,27 @@ Syslog (`syslog.py`):
 - Timestamps without a year use the current year in UTC. A line more than one day "in the future"
   is moved to the previous year, which handles a Dec 31 line arriving on Jan 1.
 - The tenant comes from the sender IP via `SYSLOG_TENANT_MAP`, else `DEFAULT_TENANT`.
+
+## Ingestion endpoints
+All three normalize events, store the valid ones, and report the rest:
+`{"accepted": n, "rejected_count": m, "rejected": [{"index": i, "error": "..."}]}`.
+One bad event never blocks the rest of the batch.
+
+| Endpoint | Auth | Body |
+|----------|------|------|
+| `POST /api/ingest?source=api` | `X-API-Key` | one JSON event or an array; `source` may be any JSON source (`aws` accepts `{"Records": [...]}`) |
+| `POST /api/ingest/file` | `X-API-Key` | multipart: `source` + `file` (.json, .ndjson/.jsonl, .csv, .log/.txt), max 50 MB |
+| `POST /api/ingest/syslog` | `X-Ingest-Token` | internal, Vector only; blocked by Caddy from outside |
+
+Rules:
+- **The tenant always comes from the API key** (or, for syslog, from the sender IP). A `tenant` field in the body is ignored and kept only in `raw`.
+- At most 10,000 events per request; above that the request gets 413.
+- Events older than `RETENTION_DAYS` or more than 1 day in the future are rejected, since they could not be stored or would be deleted right away.
+- Demo keys come from `SEED_API_KEYS` and are created by `make seed`.
+
+```
+curl -k https://localhost/api/ingest -H "X-API-Key: lm_demoA_dev_key_change_me" \
+     -H "content-type: application/json" -d '{"event_type":"login_failed","user":"alice","ip":"203.0.113.7"}'
+curl -k https://localhost/api/ingest/file -H "X-API-Key: lm_demoA_dev_key_change_me" \
+     -F source=aws -F file=@samples/aws_cloudtrail.json
+```

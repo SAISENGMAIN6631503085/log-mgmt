@@ -10,6 +10,8 @@ COMPOSE := docker compose
 
 up: .env
 	$(COMPOSE) up -d --build --wait
+	@# The Caddyfile is a bind mount, so edits don't recreate the container; reload picks them up.
+	@$(COMPOSE) exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1
 	@$(MAKE) --no-print-directory health
 
 down:

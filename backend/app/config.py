@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     jwt_secret: str = ""
     default_tenant: str = "demoA"
     syslog_tenant_map: str = ""  # parsed by normalizers.syslog.parse_tenant_map
+    # Shared secret Vector sends to /api/ingest/syslog (that endpoint has no per-tenant API key)
+    syslog_ingest_token: str = ""
+    # Demo ingest keys created by `make seed`: "tenant=key,tenant=key"
+    seed_api_keys: str = ""
     retention_days: int = 7
     alert_webhook_url: str = ""
 

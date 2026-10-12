@@ -5,6 +5,20 @@
 
 	encode gzip
 
+	# Internal endpoint for Vector only (it talks to backend:8000 directly on the Docker
+	# network). Refuse it from outside so nobody can inject syslog into any tenant.
+	# (A handle block, not a bare `respond`: Caddy runs `handle` before `respond`, so a bare
+	# respond would never be reached for paths the backend handle below also matches.)
+	@internal path /api/ingest/syslog
+	handle @internal {
+		respond 404
+	}
+
+	# Upload limit (matches MAX_UPLOAD_BYTES in the backend, plus multipart overhead).
+	request_body {
+		max_size 55MB
+	}
+
 	# Backend owns /api/* and /health; everything else is the React SPA.
 	@backend path /api/* /health
 	handle @backend {
