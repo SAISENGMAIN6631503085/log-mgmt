@@ -9,7 +9,7 @@ from . import db
 from .alerting import worker_loop
 from .auth import check_jwt_secret
 from .retention import retention_loop
-from .routers import alerts, auth, events, ingest
+from .routers import alerts, auth, events, ingest, stats
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -34,6 +34,7 @@ app.include_router(auth.router)
 app.include_router(ingest.router)
 app.include_router(events.router)
 app.include_router(alerts.router)
+app.include_router(stats.router)
 
 
 @app.get("/health")

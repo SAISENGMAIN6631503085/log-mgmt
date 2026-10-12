@@ -196,3 +196,12 @@ API (Bearer token, tenant-scoped like search):
 - It only drops tables whose names match `^events_\d{8}$`, so it never removes a table it didn't create.
 - An advisory lock lets only one backend process run it at a time.
 - Alerts are not removed by retention; they are small and are the record of what happened.
+
+## Dashboard stats
+`GET /api/stats?from=&to=` (Bearer token, tenant-scoped; default last 24 h) returns:
+- totals (events, failed logins, severity ≥ 7, unique source IPs, open alerts)
+- a timeline (15-minute, hourly or daily buckets depending on the range; empty buckets are 0
+  via `generate_series`, so quiet periods show as quiet instead of disappearing)
+- counts by source and by severity band, and the top 10 source IPs and event types
+
+`GET /api/tenants` (admin only) lists tenants for the UI's tenant switcher.
