@@ -28,7 +28,8 @@ The schema field `user` is stored as the column `username`, because `USER` is a 
 
 - `app/routers/ingest.py` – ingestion endpoints (below)
 - `app/auth.py` + `app/routers/auth.py` – login, JWT, tenant scoping
-- `app/routers/events.py` – reading events (tenant-scoped)
+- `app/routers/events.py` – event search and single event (tenant-scoped)
+- `app/search.py` – builds the search SQL (pure, unit-tested)
 - `app/api_keys.py` – per-tenant `X-API-Key` auth (keys stored as SHA-256)
 - `app/events_store.py` – bulk insert with COPY, timestamp window check
 
@@ -108,3 +109,32 @@ curl -k https://localhost/api/ingest/file -H "X-API-Key: lm_demoA_dev_key_change
 
 `make seed` creates `admin` (default tenant demoA), `viewerA` (demoA) and `viewerB` (demoB)
 with the passwords from `SEED_ADMIN_PASSWORD` / `SEED_VIEWER_PASSWORD`.
+
+## Search
+`GET /api/events` needs a Bearer token. All filters are optional and combine with AND.
+
+| Param | Example | Meaning |
+|-------|---------|---------|
+| `from`, `to` | `2026-10-12T08:00:00Z` | time range; default is the last 24 h; no zone means UTC |
+| `source` | `?source=aws&source=m365` | repeat to match any of several |
+| `action` | `deny` | repeatable, like `source` |
+| `severity_min` | `7` | 0–10 |
+| `src_ip`, `dst_ip` | `203.0.113.50` or `10.0.0.0/8` | an IP or a whole network |
+| `user`, `host` | `administrator` | exact match, any case |
+| `event_type` | `ConsoleLogin` | exact |
+| `tag` | `auth_failure` | |
+| `q` | `mimikatz` | free text over the main fields **and the original log** (`raw`), any case |
+| `limit`, `cursor` | `50` | page size (max 500); pass `next_cursor` to get the next page |
+| `tenant` | `demoB` | admin only (see above) |
+
+`GET /api/events/{id}` returns one event, or 404 if it belongs to another tenant (404 rather
+than 403, so the response doesn't reveal that the id exists).
+
+How it works:
+- **No SQL injection.** Every value is sent as a query parameter; column names are fixed in code.
+- **Fast.** Every query is filtered by tenant and time, so Postgres reads only the relevant
+  daily partitions, using the `(tenant, ts)` index.
+- **Keyset paging (`(ts, id) < cursor`) instead of OFFSET.** Deep pages stay fast, and new
+  events arriving between page loads don't cause duplicates or gaps.
+- **One extra row instead of `COUNT(*)`.** Each query fetches one row more than the page
+  size; if it arrives, there is a next page.
