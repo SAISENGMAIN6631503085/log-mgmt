@@ -16,6 +16,7 @@ open https://localhost   # self-signed cert from Caddy's internal CA; accept the
 | `make seed` | load demo data |
 | `make test` | run pytest from `/tests` inside the backend image |
 | `make logs` | follow logs from all services |
+| `make retention` | drop event partitions older than `RETENTION_DAYS` now (also runs hourly) |
 
 ## Services
 | Service  | Role | Exposed |

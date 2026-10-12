@@ -1,7 +1,7 @@
 # Thin wrappers around docker compose so reviewers only need `make <target>`.
 COMPOSE := docker compose
 
-.PHONY: up down seed test logs ps health
+.PHONY: up down seed test logs ps health retention
 
 # Create .env from the example on first run so `make up` works out of the box
 .env:
@@ -24,6 +24,10 @@ seed: .env
 # `python -m` puts /app on sys.path so tests can `import app`.
 test: .env
 	$(COMPOSE) run --rm --no-deps -v $(CURDIR)/tests:/app/tests -v $(CURDIR)/samples:/app/samples:ro backend python -m pytest -q tests
+
+# Drop event partitions older than RETENTION_DAYS now (the backend also does this hourly)
+retention: .env
+	$(COMPOSE) exec backend python -m app.retention
 
 logs:
 	$(COMPOSE) logs -f --tail=100

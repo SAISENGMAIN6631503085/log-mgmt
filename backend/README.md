@@ -31,6 +31,7 @@ The schema field `user` is stored as the column `username`, because `USER` is a 
 - `app/routers/events.py` – event search and single event (tenant-scoped)
 - `app/search.py` – builds the search SQL (pure, unit-tested)
 - `app/alerting.py` + `app/routers/alerts.py` – alert worker and alerts API
+- `app/retention.py` – drops old partitions (hourly, and `make retention`)
 - `app/api_keys.py` – per-tenant `X-API-Key` auth (keys stored as SHA-256)
 - `app/events_store.py` – bulk insert with COPY, timestamp window check
 
@@ -180,3 +181,18 @@ How it works:
 API (Bearer token, tenant-scoped like search):
 - `GET /api/alerts?status=open|acknowledged`
 - `POST /api/alerts/{id}/ack` (admin only; viewers are read-only)
+
+## Retention
+`app/retention.py` runs hourly inside the backend and on demand with `make retention`:
+1. It creates partitions from `RETENTION_DAYS` ago up to 7 days ahead, so ingest never finds
+   a missing day, even if the backend was down for a while.
+2. It drops every `events_YYYYMMDD` partition older than `RETENTION_DAYS` (default 7).
+   The day exactly `RETENTION_DAYS` ago is kept, matching what ingest accepts.
+
+- `DROP TABLE` on a partition is instant and frees disk at once. A `DELETE` would be slow,
+  hold locks and leave dead rows for VACUUM. This is the reason the table is partitioned by day.
+- It runs hourly, not daily, because every step is idempotent. A restart or a missed run is
+  caught up within the hour, with no "last run" bookkeeping.
+- It only drops tables whose names match `^events_\d{8}$`, so it never removes a table it didn't create.
+- An advisory lock lets only one backend process run it at a time.
+- Alerts are not removed by retention; they are small and are the record of what happened.

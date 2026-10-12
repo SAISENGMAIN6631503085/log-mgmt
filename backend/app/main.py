@@ -8,6 +8,7 @@ from fastapi import FastAPI, Response
 from . import db
 from .alerting import worker_loop
 from .auth import check_jwt_secret
+from .retention import retention_loop
 from .routers import alerts, auth, events, ingest
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -17,12 +18,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 async def lifespan(app: FastAPI):
     check_jwt_secret()  # refuse to start rather than run with forgeable tokens
     await db.connect()
-    # In-process background task: no extra container or queue for a once-a-minute job.
-    worker = asyncio.create_task(worker_loop())
+    # In-process background tasks: no extra container or queue for periodic jobs.
+    tasks = [asyncio.create_task(worker_loop()), asyncio.create_task(retention_loop())]
     yield
-    worker.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await worker
+    for t in tasks:
+        t.cancel()
+    for t in tasks:
+        with contextlib.suppress(asyncio.CancelledError):
+            await t
     await db.disconnect()
 
 
