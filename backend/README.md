@@ -27,6 +27,8 @@ Ingest must call `ensure_event_partition` for back-dated events.
 The schema field `user` is stored as the column `username`, because `USER` is a reserved word in SQL.
 
 - `app/routers/ingest.py` – ingestion endpoints (below)
+- `app/auth.py` + `app/routers/auth.py` – login, JWT, tenant scoping
+- `app/routers/events.py` – reading events (tenant-scoped)
 - `app/api_keys.py` – per-tenant `X-API-Key` auth (keys stored as SHA-256)
 - `app/events_store.py` – bulk insert with COPY, timestamp window check
 
@@ -81,3 +83,28 @@ curl -k https://localhost/api/ingest -H "X-API-Key: lm_demoA_dev_key_change_me" 
 curl -k https://localhost/api/ingest/file -H "X-API-Key: lm_demoA_dev_key_change_me" \
      -F source=aws -F file=@samples/aws_cloudtrail.json
 ```
+
+## Login and tenant isolation
+`POST /api/auth/login` takes `{"username", "password"}` and returns a JWT. Send it as
+`Authorization: Bearer <token>`. The token's claims are `sub`, `role` (admin|viewer) and `tenant`.
+`GET /api/auth/me` shows the current claims.
+
+| Who | `GET /api/events` | `GET /api/events?tenant=demoB` |
+|-----|-------------------|--------------------------------|
+| viewerA (demoA) | demoA events | **403** |
+| admin | admin's default tenant | demoB events |
+| no / bad token | **401** | **401** |
+
+- **All tenant decisions happen in `resolve_tenant()` / `scoped_tenant`** (`app/auth.py`).
+  Data endpoints take their tenant from that dependency and put it in the SQL `WHERE`.
+  They never read a tenant from the body or a header.
+- Passwords are hashed with bcrypt.
+- Wrong password and unknown user return the same error and take the same time, because a
+  dummy hash is checked, so attackers can't find valid usernames.
+- JWTs are HS256, and the algorithm is fixed on decode, so `alg: none` tokens are rejected.
+- The backend refuses to start if `JWT_SECRET` is shorter than 32 characters or still the
+  example value.
+- Tokens are stateless, so a role change takes effect when the old token expires (`JWT_EXPIRE_MINUTES`).
+
+`make seed` creates `admin` (default tenant demoA), `viewerA` (demoA) and `viewerB` (demoB)
+with the passwords from `SEED_ADMIN_PASSWORD` / `SEED_VIEWER_PASSWORD`.
