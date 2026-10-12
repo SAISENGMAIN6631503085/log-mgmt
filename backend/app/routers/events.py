@@ -22,6 +22,7 @@ def row_to_api(r) -> dict[str, Any]:
     for k in ("src_ip", "dst_ip"):
         d[k] = str(d[k]) if d[k] is not None else None
     d.pop("ingested_at", None)
+    d.pop("fingerprint", None)  # internal dedup hash (bytes), not part of the schema
     return d
 
 

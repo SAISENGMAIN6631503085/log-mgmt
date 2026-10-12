@@ -1,17 +1,28 @@
+import asyncio
+import contextlib
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
 
 from . import db
+from .alerting import worker_loop
 from .auth import check_jwt_secret
-from .routers import auth, events, ingest
+from .routers import alerts, auth, events, ingest
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     check_jwt_secret()  # refuse to start rather than run with forgeable tokens
     await db.connect()
+    # In-process background task: no extra container or queue for a once-a-minute job.
+    worker = asyncio.create_task(worker_loop())
     yield
+    worker.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await worker
     await db.disconnect()
 
 
@@ -19,6 +30,7 @@ app = FastAPI(title="Mini Log Management", lifespan=lifespan)
 app.include_router(auth.router)
 app.include_router(ingest.router)
 app.include_router(events.router)
+app.include_router(alerts.router)
 
 
 @app.get("/health")

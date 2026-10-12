@@ -41,12 +41,25 @@ def _row(e: Event) -> tuple:
 
 
 async def insert_events(conn: asyncpg.Connection, events: list[Event]) -> int:
-    """Insert a batch in one transaction using COPY (much faster than row-by-row INSERTs)."""
+    """Insert a batch in one transaction; returns how many were new (duplicates are skipped).
+
+    COPY is much faster than row-by-row INSERTs but can't skip duplicates, so the batch is
+    COPYed into a temporary table and moved over with INSERT ... ON CONFLICT DO NOTHING.
+    The fingerprint is set by a trigger (migration 003).
+    """
     if not events:
         return 0
+    cols = ", ".join(_COLUMNS)
     async with conn.transaction():
         # Back-dated events may belong to a day whose partition doesn't exist yet.
         for day in sorted({e.ts.date() for e in events}):
             await conn.execute("SELECT ensure_event_partition($1)", day)
-        await conn.copy_records_to_table("events", records=[_row(e) for e in events], columns=_COLUMNS)
-    return len(events)
+        # Same column types as events, no constraints; dropped automatically at commit.
+        await conn.execute(f"CREATE TEMP TABLE events_in ON COMMIT DROP AS SELECT {cols} FROM events WITH NO DATA")
+        await conn.copy_records_to_table("events_in", records=[_row(e) for e in events], columns=_COLUMNS)
+        return await conn.fetchval(f"""
+            WITH inserted AS (
+                INSERT INTO events ({cols}) SELECT {cols} FROM events_in
+                ON CONFLICT (fingerprint, ts) DO NOTHING
+                RETURNING 1)
+            SELECT count(*) FROM inserted""")

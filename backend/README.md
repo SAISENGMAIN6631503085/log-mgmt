@@ -30,6 +30,7 @@ The schema field `user` is stored as the column `username`, because `USER` is a 
 - `app/auth.py` + `app/routers/auth.py` – login, JWT, tenant scoping
 - `app/routers/events.py` – event search and single event (tenant-scoped)
 - `app/search.py` – builds the search SQL (pure, unit-tested)
+- `app/alerting.py` + `app/routers/alerts.py` – alert worker and alerts API
 - `app/api_keys.py` – per-tenant `X-API-Key` auth (keys stored as SHA-256)
 - `app/events_store.py` – bulk insert with COPY, timestamp window check
 
@@ -63,8 +64,23 @@ Syslog (`syslog.py`):
 
 ## Ingestion endpoints
 All three normalize events, store the valid ones, and report the rest:
-`{"accepted": n, "rejected_count": m, "rejected": [{"index": i, "error": "..."}]}`.
+`{"accepted": n, "duplicates": d, "rejected_count": m, "rejected": [{"index": i, "error": "..."}]}`.
 One bad event never blocks the rest of the batch.
+
+**Duplicates** (migration 003): an event already stored is counted in `duplicates` and not stored again.
+Re-uploading a file or Vector retrying a batch is therefore safe.
+- A trigger sets `fingerprint = sha256(jsonb_build_array(tenant, source, raw)::text)` on every insert.
+  `jsonb` normalizes key order and whitespace, so it is the same however the JSON was formatted.
+  Because the trigger sets it, a caller can't supply or forge one.
+- Uniqueness is on `(fingerprint, ts)`, because Postgres needs the partition key in a unique index.
+  So identical content at a different time is a different event.
+- The same event sent by two tenants is stored for both.
+- Events with no timestamp get the receipt time, so they are never treated as duplicates. Two
+  such sends are kept, rather than risk dropping real repeated events.
+- Trade-off: two genuinely separate events with byte-identical payloads *and* identical
+  timestamps are stored once. Real sources include unique IDs or ports (CloudTrail `eventID`,
+  M365 `Id`, AD `IpPort`), so this mostly affects hand-made test data.
+- Inserting goes COPY → temp table → `INSERT ... ON CONFLICT DO NOTHING`, since COPY alone can't skip conflicts.
 
 | Endpoint | Auth | Body |
 |----------|------|------|
@@ -138,3 +154,29 @@ How it works:
   events arriving between page loads don't cause duplicates or gaps.
 - **One extra row instead of `COUNT(*)`.** Each query fetches one row more than the page
   size; if it arrives, there is a next page.
+
+## Alerts
+A background task inside the backend runs every `ALERT_INTERVAL_SECONDS` (60).
+
+**Rule `brute_force_login`:** 5 or more events tagged `auth_failure` from the same `src_ip`,
+in the same tenant, within any 5-minute window. Severity 7.
+
+How it works:
+- **Event time, not clock time.** Each run takes the IPs whose failed logins *arrived* in the
+  last 10 minutes (indexed `ingested_at`, migration 002), then slides a 5-minute window over
+  their failures by `ts` (SQL `count(*) OVER (... RANGE '5 min' PRECEDING)`). Logs that arrive
+  late, or come from an uploaded file, are still caught.
+- **De-duplication.** Overlapping windows are one attack. If an alert for the same
+  (tenant, rule, src_ip) ended less than 5 minutes before the new burst, the existing alert is
+  extended (`window_end`, `event_count`) instead of creating a new one. A new attack after a
+  quiet period creates a new alert.
+- **One evaluator.** `pg_try_advisory_xact_lock` makes a second backend process skip the run,
+  so alerts are never doubled.
+- **Webhook.** If `ALERT_WEBHOOK_URL` is set, each new alert is POSTed as
+  `{"type": "alert", "alert": {...}}`. A failed delivery is logged, and retried on each run
+  for up to an hour; `webhook_sent_at` records success. Delivery happens after the DB
+  transaction commits, so a slow webhook never blocks or rolls back alerts.
+
+API (Bearer token, tenant-scoped like search):
+- `GET /api/alerts?status=open|acknowledged`
+- `POST /api/alerts/{id}/ack` (admin only; viewers are read-only)

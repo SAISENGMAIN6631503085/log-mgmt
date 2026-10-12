@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     seed_viewer_password: str = ""
     retention_days: int = 7
     alert_webhook_url: str = ""
+    alert_interval_seconds: int = 60
 
     @property
     def database_dsn(self) -> str:

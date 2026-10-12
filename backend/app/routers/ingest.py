@@ -32,6 +32,7 @@ class Rejected(BaseModel):
 
 class IngestResult(BaseModel):
     accepted: int
+    duplicates: int  # valid events that were already stored (e.g. the same file uploaded twice)
     rejected_count: int
     rejected: list[Rejected]
 
@@ -64,7 +65,7 @@ async def _process(items: list[tuple[str, Any, str]]) -> IngestResult:
 
     async with db.pool.acquire() as conn:
         accepted = await insert_events(conn, events)
-    return IngestResult(accepted=accepted, rejected_count=len(rejected), rejected=rejected[:MAX_ERRORS_RETURNED])
+    return IngestResult(accepted=accepted, duplicates=len(events) - accepted, rejected_count=len(rejected), rejected=rejected[:MAX_ERRORS_RETURNED])
 
 
 def _check_source(source: str) -> None:

@@ -102,8 +102,10 @@ def test_other_json_source_via_query(env):
     client, tenant, key, *_ = env
     record = {"eventTime": now_iso(), "eventName": "ConsoleLogin", "eventSource": "signin.amazonaws.com",
               "responseElements": {"ConsoleLogin": "Failure"}, "sourceIPAddress": "203.0.113.9"}
-    r = client.post("/api/ingest?source=aws", json={"Records": [record, record]}, headers={"X-API-Key": key})
-    assert r.json()["accepted"] == 2 and count(tenant, source="aws") == 2
+    # Two distinct records (identical ones would now be de-duplicated, see test_dedup.py).
+    records = [record | {"userIdentity": {"userName": "carol"}}, record | {"userIdentity": {"userName": "dave"}}]
+    r = client.post("/api/ingest?source=aws", json={"Records": records}, headers={"X-API-Key": key})
+    assert r.json()["accepted"] == 2 and r.json()["duplicates"] == 0 and count(tenant, source="aws") == 2
 
 
 def test_unknown_source_is_400(env):
