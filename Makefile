@@ -21,7 +21,7 @@ seed: .env
 # Tests live in /tests at the repo root (assignment layout), so mount them into the backend image.
 # `python -m` puts /app on sys.path so tests can `import app`.
 test: .env
-	$(COMPOSE) run --rm --no-deps -v $(CURDIR)/tests:/app/tests backend python -m pytest -q tests
+	$(COMPOSE) run --rm --no-deps -v $(CURDIR)/tests:/app/tests -v $(CURDIR)/samples:/app/samples:ro backend python -m pytest -q tests
 
 logs:
 	$(COMPOSE) logs -f --tail=100

@@ -1,0 +1,6 @@
+[
+  {"CreationTime": "2026-10-12T09:00:00", "Id": "1f0c1a2b-0001", "Operation": "UserLoggedIn", "OrganizationId": "contoso-org-id", "RecordType": 15, "ResultStatus": "Success", "UserId": "erin@contoso.com", "ClientIP": "198.51.100.30", "Workload": "AzureActiveDirectory"},
+  {"CreationTime": "2026-10-12T09:01:00", "Id": "1f0c1a2b-0002", "Operation": "UserLoginFailed", "OrganizationId": "contoso-org-id", "RecordType": 15, "ResultStatus": "Failed", "UserId": "erin@contoso.com", "ClientIP": "203.0.113.120", "Workload": "AzureActiveDirectory", "LogonError": "InvalidPassword"},
+  {"CreationTime": "2026-10-12T09:05:00", "Id": "1f0c1a2b-0003", "Operation": "FileDeleted", "OrganizationId": "contoso-org-id", "RecordType": 6, "UserId": "frank@contoso.com", "ClientIP": "198.51.100.31", "Workload": "SharePoint", "ObjectId": "https://contoso.sharepoint.com/sites/hr/Shared Documents/salaries.xlsx"},
+  {"CreationTime": "2026-10-12T09:10:00", "Id": "1f0c1a2b-0004", "Operation": "New-InboxRule", "OrganizationId": "contoso-org-id", "RecordType": 1, "ResultStatus": "True", "UserId": "erin@contoso.com", "ClientIP": "203.0.113.120:51515", "Workload": "Exchange", "Parameters": [{"Name": "ForwardTo", "Value": "attacker@example.net"}]}
+]

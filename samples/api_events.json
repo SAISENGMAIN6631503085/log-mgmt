@@ -1,0 +1,7 @@
+[
+  {"timestamp": "2026-10-12T08:00:00Z", "service": "payments-api", "event_type": "login_success", "user": "alice", "ip": "198.51.100.7", "method": "POST", "path": "/api/v1/login", "status": 200},
+  {"timestamp": "2026-10-12T08:01:10Z", "service": "payments-api", "event_type": "login_failed", "user": "alice", "ip": "203.0.113.77", "method": "POST", "path": "/api/v1/login", "status": 401, "reason": "bad_password"},
+  {"timestamp": "2026-10-12T08:02:00Z", "service": "payments-api", "event_type": "payment_failed", "user": "alice", "ip": "198.51.100.7", "method": "POST", "path": "/api/v1/payments", "status": 502},
+  {"timestamp": "2026-10-12T08:03:30Z", "service": "orders-api", "event_type": "order_created", "user": "bob", "ip": "198.51.100.8", "method": "POST", "path": "/api/v1/orders", "status": 201},
+  {"timestamp": "2026-10-12T08:05:00Z", "service": "orders-api", "event_type": "logout", "user": "bob", "ip": "198.51.100.8", "method": "POST", "path": "/api/v1/logout", "status": 204}
+]

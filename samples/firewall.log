@@ -1,0 +1,5 @@
+<134>Oct 12 08:15:01 fw01 vendor=Fortinet product=FortiGate action=accept src=10.0.1.25 dst=93.184.216.34 spt=50432 dpt=443 proto=tcp rule_id=10 rule_name="Allow outbound HTTPS" msg="session allowed"
+<132>Oct 12 08:15:07 fw01 vendor=Fortinet product=FortiGate action=deny src=203.0.113.45 dst=10.0.0.10 spt=51234 dpt=22 proto=tcp rule_id=1001 rule_name="Block SSH from internet" msg="inbound SSH denied"
+<132>Oct 12 08:15:09 fw01 vendor=Fortinet product=FortiGate action=drop src=203.0.113.45 dst=10.0.0.11 spt=51240 dpt=3389 proto=tcp rule_id=1002 rule_name="Block RDP from internet" msg="inbound RDP dropped"
+<134>Oct 12 08:16:30 fw02 vendor=PaloAlto product=PAN-OS action=allow ip=10.0.2.14 dst=8.8.8.8 spt=53001 dpt=53 proto=udp rule_id=20 rule_name="Allow DNS" msg="dns query"
+<129>Oct 12 08:17:44 fw02 vendor=PaloAlto product=PAN-OS action=deny src=198.51.100.23 dst=10.0.2.50 spt=40000 dpt=445 proto=tcp rule_id=1003 rule_name="Block SMB" event_type=threat event_subtype=port_scan msg="port scan detected and blocked"

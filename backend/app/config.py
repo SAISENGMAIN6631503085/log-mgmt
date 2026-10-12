@@ -12,6 +12,7 @@ class Settings(BaseSettings):
 
     jwt_secret: str = ""
     default_tenant: str = "demoA"
+    syslog_tenant_map: str = ""  # parsed by normalizers.syslog.parse_tenant_map
     retention_days: int = 7
     alert_webhook_url: str = ""
 

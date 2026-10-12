@@ -1,0 +1,12 @@
+TimeCreated,EventID,Computer,TargetUserName,TargetDomainName,SubjectUserName,IpAddress,IpPort,LogonType,Status
+2026-10-12T10:00:00Z,4624,DC01.corp.local,alice,CORP,-,10.0.1.25,50110,3,0x0
+2026-10-12T10:05:00Z,4625,DC01.corp.local,administrator,CORP,-,203.0.113.50,51001,3,0xc000006d
+2026-10-12T10:05:20Z,4625,DC01.corp.local,administrator,CORP,-,203.0.113.50,51002,3,0xc000006d
+2026-10-12T10:05:40Z,4625,DC01.corp.local,administrator,CORP,-,203.0.113.50,51003,3,0xc000006d
+2026-10-12T10:06:00Z,4625,DC01.corp.local,administrator,CORP,-,203.0.113.50,51004,3,0xc000006d
+2026-10-12T10:06:20Z,4625,DC01.corp.local,administrator,CORP,-,203.0.113.50,51005,3,0xc000006d
+2026-10-12T10:06:40Z,4625,DC01.corp.local,administrator,CORP,-,203.0.113.50,51006,3,0xc000006d
+2026-10-12T10:06:41Z,4740,DC01.corp.local,administrator,CORP,DC01$,-,-,-,-
+2026-10-12T10:30:00Z,4720,DC01.corp.local,newhire01,CORP,alice,-,-,-,-
+2026-10-12T10:45:00Z,4726,DC01.corp.local,olduser07,CORP,alice,-,-,-,-
+2026-10-12T17:00:00Z,4634,DC01.corp.local,alice,CORP,-,-,-,3,-

@@ -1,0 +1,4 @@
+<187>Oct 12 08:20:11 core-sw01 %LINK-3-UPDOWN: vendor=Cisco product=IOS event_type=link_down interface=Gi1/0/24 msg="Interface GigabitEthernet1/0/24, changed state to down"
+<189>Oct 12 08:20:41 core-sw01 %LINK-5-UPDOWN: vendor=Cisco product=IOS event_type=link_up interface=Gi1/0/24 msg="Interface GigabitEthernet1/0/24, changed state to up"
+<189>Oct 12 08:31:02 edge-rtr01 %SYS-5-CONFIG_I: vendor=Cisco product=IOS event_type=config_change user=netadmin src=10.0.9.5 msg="Configured from console by netadmin on vty0"
+<188>Oct 12 08:40:15 edge-rtr01 %BGP-4-ADJCHANGE: vendor=Cisco product=IOS event_type=bgp_neighbor_down dst=192.0.2.1 msg="neighbor 192.0.2.1 Down - hold time expired"
