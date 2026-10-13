@@ -55,7 +55,9 @@ All images are multi-arch (linux/amd64 and linux/arm64).
    - JSON: client → `POST /api/ingest?source=...` (API key);
    - file: client → `POST /api/ingest/file` (API key).
 2. **Tenant is decided**: from the API key, or for syslog from the sender IP (`SYSLOG_TENANT_MAP`,
-   otherwise `DEFAULT_TENANT`). A `tenant` field in the body is never trusted.
+   otherwise `DEFAULT_TENANT`). A `tenant` field in the body is never trusted: if it names a
+   different tenant than the key's, that event is rejected (so a mislabelled sample can't land in the
+   wrong tenant).
 3. **Normalized**: `backend/app/normalizers/<source>.py` maps the payload to the common schema
    (`Event`, a Pydantic model that rejects bad values). The original payload is kept in `raw`.
 4. **Checked**: events outside `[now − RETENTION_DAYS, now + 1 day]` are rejected with a reason.
