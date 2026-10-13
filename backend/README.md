@@ -87,6 +87,7 @@ Re-uploading a file or Vector retrying a batch is therefore safe.
 |----------|------|------|
 | `POST /api/ingest` (alias `POST /ingest`) | `X-API-Key` | one JSON event or an array. The normalizer comes from `?source=`, else each event's own `"source"` field, else `api`. A `{"Records": [...]}` body is CloudTrail. |
 | `POST /api/ingest/file` | `X-API-Key` | multipart: `source` + `file` (.json, .ndjson/.jsonl, .csv, .log/.txt), max 50 MB |
+| `POST /api/ingest/upload` | login token, **admin** | the same upload for the website's **Add logs** page. The tenant is the one being viewed (`?tenant=`, same rule as every read endpoint); viewers get 403 because they're read-only. |
 | `POST /api/ingest/syslog` | `X-Ingest-Token` | internal, Vector only; blocked by Caddy from outside |
 
 Rules:

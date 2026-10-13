@@ -28,5 +28,9 @@ window on any day. The sample files themselves are dated 2026-10-12.
 | `simulator.py` | Continuous realistic traffic for every tenant key, plus a brute-force burst (6 failed AD logons from one IP) every `--attack-every` seconds, so alerts fire live. |
 
 `make demo` runs the first two for both demo tenants; `make simulate` runs the simulator.
+To keep it running in the background (as the live demo does), set `COMPOSE_PROFILES=demo` in `.env`
+and `make up`: the `simulator` service sends a gentler stream (`--rate 0.3 --daily-cycle`, busier by
+day than at night) with an attack every 15 minutes. `simulator.py --keys` also accepts the
+`SEED_API_KEYS` format (`demoA=key,demoB=key`).
 Running `post_logs.py` again creates new events (new timestamps), which is not counted as duplicates.
 Sending a file with the same timestamps twice is skipped as duplicates.

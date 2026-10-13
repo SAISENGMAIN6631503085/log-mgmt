@@ -84,6 +84,10 @@ curl https://logs.example.com/health          # no -k needed: the certificate is
 
 Open `https://logs.example.com` and sign in. No browser warning.
 
+**Keep the demo looking alive** (optional): add `COMPOSE_PROFILES=demo` to `.env` and `make up`.
+A small simulator service then sends realistic traffic for both demo tenants, busier by day, with a
+brute-force attack every 15 minutes, so reviewers always find fresh charts and alerts.
+
 Load demo data: `make demo` on the server (it uses `SITE_ADDRESS` and the keys from `.env`), or from
 your laptop against the public URL:
 ```bash

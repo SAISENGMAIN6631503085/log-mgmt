@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Alert, api, clearSession, loadSession, User } from "./api";
 import { Icon, IconName } from "./components/Icon";
 import { TenantSwitcher, ThemeSwitch, UserMenu } from "./components/TopBar";
+import { AddLogs } from "./pages/AddLogs";
 import { Alerts } from "./pages/Alerts";
 import { Dashboard } from "./pages/Dashboard";
 import { Events } from "./pages/Events";
@@ -12,6 +13,7 @@ const PAGES: { key: string; label: string; icon: IconName }[] = [
   { key: "dashboard", label: "Overview", icon: "dashboard" },
   { key: "events", label: "Search", icon: "search" },
   { key: "alerts", label: "Alerts", icon: "bell" },
+  { key: "add", label: "Add logs", icon: "upload" },
 ];
 
 export default function App() {
@@ -133,6 +135,7 @@ export default function App() {
 
         {page === "dashboard" && <Dashboard key={key} tenant={tenant} tenantName={activeTenant} />}
         {page === "events" && <Events key={key} route={route} tenant={tenant} tenantName={activeTenant} />}
+        {page === "add" && <AddLogs key={key} user={user} tenant={tenant} tenantName={activeTenant} />}
         {page === "alerts" && <Alerts key={key} user={user} tenant={tenant} tenantName={activeTenant} onChange={setOpenAlerts} />}
       </div>
     </div>

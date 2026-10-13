@@ -151,6 +151,37 @@ def test_file_upload_needs_key(env):
     assert r.status_code == 401
 
 
+def _bearer(role: str, tenant: str) -> dict:
+    from app.auth import Claims, create_token
+    return {"Authorization": f"Bearer {create_token(Claims(sub='x', role=role, tenant=tenant))}"}
+
+
+def _ad_csv() -> str:
+    return f"TimeCreated,EventID,Computer,TargetUserName,IpAddress,IpPort\n{now_iso()},4625,DC01,bob,203.0.113.5,5000\n"
+
+
+def test_ui_upload_goes_to_the_viewed_tenant(env):
+    # The website's upload: admin's login token, tenant from ?tenant= (not an API key).
+    client, tenant_a, _, tenant_b, _ = env
+    r = client.post("/api/ingest/upload", params={"tenant": tenant_b}, headers=_bearer("admin", tenant_a),
+                    data={"source": "ad"}, files={"file": ("sec.csv", _ad_csv(), "text/csv")})
+    assert r.status_code == 200 and r.json()["accepted"] == 1
+    assert count(tenant_b, source="ad") == 1 and count(tenant_a) == 0
+
+
+def test_ui_upload_is_admin_only(env):
+    client, tenant_a, *_ = env
+    r = client.post("/api/ingest/upload", headers=_bearer("viewer", tenant_a),
+                    data={"source": "ad"}, files={"file": ("sec.csv", _ad_csv(), "text/csv")})
+    assert r.status_code == 403 and count(tenant_a) == 0
+
+
+def test_ui_upload_needs_login(env):
+    client, *_ = env
+    r = client.post("/api/ingest/upload", data={"source": "ad"}, files={"file": ("sec.csv", _ad_csv(), "text/csv")})
+    assert r.status_code == 401
+
+
 def _syslog_line(text: str) -> str:
     return f"<132>{datetime.now(timezone.utc):%b %d %H:%M:%S} {text}"
 

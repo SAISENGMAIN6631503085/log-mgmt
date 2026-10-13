@@ -48,6 +48,22 @@ services:
       - backend
     restart: unless-stopped
 
+  # Optional live demo traffic (off unless COMPOSE_PROFILES=demo): realistic events for both demo
+  # tenants plus a brute-force attack every 15 minutes, so a public demo never looks empty.
+  # It talks to the backend and Vector directly on the compose network, like a log shipper would.
+  simulator:
+    image: python:3.12-alpine
+    profiles: ["demo"]
+    volumes:
+      - ./samples:/samples:ro
+    command: >-
+      python -u /samples/simulator.py --url http://backend:8000 --keys ${SEED_API_KEYS}
+      --syslog vector:514 --rate 0.3 --daily-cycle --attack-every 900
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
   caddy:
     image: caddy:2.10-alpine
     env_file: .env

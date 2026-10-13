@@ -109,6 +109,13 @@ export function Dashboard({ tenant, tenantName }: { tenant: string | undefined; 
 
     body = (
       <>
+        {total === 0 && (
+          <div className="note">
+            <Icon name="inbox" size={16} />
+            <span style={{ flex: 1 }}>No logs in the {rangeLong}{source ? ` from ${sourceLabel(source)}` : ""} yet.</span>
+            <button className="sm" onClick={() => go("add")}><Icon name="upload" size={14} />Add logs</button>
+          </div>
+        )}
         <div className="kpis">
           <Kpi icon="activity" label="Total events" value={total} onClick={() => search({})}
                footer={<Delta current={total} previous={stats.previous.events} period={range} />} />

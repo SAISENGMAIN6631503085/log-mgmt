@@ -9,9 +9,13 @@ alert worker's next run.
     python3 samples/simulator.py                          # 2 events/s for demoA and demoB, until Ctrl-C
     python3 samples/simulator.py --duration 60 --rate 5
     python3 samples/simulator.py --attack-every 30 --no-syslog
+
+The compose service `simulator` (profile "demo") runs this non-stop on a demo server with
+--daily-cycle, so the live dashboard always has fresh, realistic-looking traffic.
 """
 import argparse
 import json
+import math
 import random
 import socket
 import ssl
@@ -97,6 +101,12 @@ def syslog_line():
             f"event_type=link_{state} interface=Gi1/0/{random.randint(1, 48)}")
 
 
+def daily_factor() -> float:
+    """Busy afternoons, quiet nights (Bangkok time, UTC+7): 0.2 at 03:00 up to 1.0 at 15:00."""
+    hour = (time.gmtime().tm_hour + 7) % 24 + time.gmtime().tm_min / 60
+    return 0.6 - 0.4 * math.cos((hour - 3) / 24 * 2 * math.pi)
+
+
 class Client:
     def __init__(self, url, insecure):
         self.url = url
@@ -118,17 +128,18 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--url", default="https://localhost")
     ap.add_argument("--keys", default="lm_demoA_dev_key_change_me,lm_demoB_dev_key_change_me",
-                    help="comma-separated tenant API keys")
+                    help="comma-separated tenant API keys; \"tenant=key\" pairs (SEED_API_KEYS format) work too")
     ap.add_argument("--rate", type=float, default=2, help="HTTP events per second per tenant")
     ap.add_argument("--duration", type=float, default=0, help="seconds to run (0 = until Ctrl-C)")
     ap.add_argument("--attack-every", type=float, default=120, help="seconds between brute-force bursts (0 = never)")
     ap.add_argument("--syslog", default="127.0.0.1:514", help="Vector syslog host:port (UDP)")
     ap.add_argument("--no-syslog", action="store_true")
     ap.add_argument("--verify-tls", action="store_true")
+    ap.add_argument("--daily-cycle", action="store_true", help="vary the rate by time of day, like real traffic")
     args = ap.parse_args()
 
     client = Client(args.url, insecure=not args.verify_tls)
-    keys = [k.strip() for k in args.keys.split(",") if k.strip()]
+    keys = [k.strip().split("=")[-1] for k in args.keys.split(",") if k.strip()]
     sock = None if args.no_syslog else socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sys_host, _, sys_port = args.syslog.partition(":")
     start = time.time()
@@ -142,7 +153,8 @@ def main() -> int:
             for key in keys:
                 # Group by source: one request per source per tick.
                 batch: dict[str, list] = {}
-                n = int(args.rate) + (random.random() < args.rate % 1)
+                rate = args.rate * (daily_factor() if args.daily_cycle else 1)
+                n = int(rate) + (random.random() < rate % 1)
                 for _ in range(n):
                     source, event = random.choice(GENERATORS)()
                     batch.setdefault(source, []).append(event)
@@ -160,7 +172,8 @@ def main() -> int:
                         totals["accepted"] += r["accepted"]
             if time.time() >= next_attack:
                 next_attack = time.time() + args.attack_every
-            if sock:
+            # One syslog line per second at rate >= 1; at lower rates, proportionally fewer.
+            if sock and random.random() < args.rate * (daily_factor() if args.daily_cycle else 1):
                 sock.sendto(syslog_line().encode(), (sys_host, int(sys_port or 514)))
                 totals["syslog"] += 1
             time.sleep(max(0.0, 1 - (time.time() - tick)))

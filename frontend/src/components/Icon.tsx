@@ -22,6 +22,11 @@ const PATHS: Record<string, string> = {
   info: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z M12 11v5 M12 7.6v.2",
   up: "M12 19V5 M6 11l6-6 6 6",
   down: "M12 5v14 M6 13l6 6 6-6",
+  upload: "M12 15V4 M7.5 8.5 12 4l4.5 4.5 M4 15v5h16v-5",
+  file: "M6 3h8l4 4v14H6z M14 3v4h4",
+  copy: "M9 9h11v11H9z M5 15H4V4h11v1",
+  code: "M8.5 8 4.5 12l4 4 M15.5 8l4 4-4 4",
+  router: "M3.5 13h17v6h-17z M7 16h.01 M10.5 16h.01 M8 9.5a6 6 0 0 1 8 0 M5.5 7a9.5 9.5 0 0 1 13 0",
   building: "M5 20V5h9v15 M14 9h5v11 M3 20h18 M8 8.5h3 M8 12h3 M8 15.5h3",
 };
 

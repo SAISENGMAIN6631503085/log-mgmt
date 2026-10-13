@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 
 from .. import db
 from ..api_keys import tenant_from_api_key
+from ..auth import require_admin, scoped_tenant
 from ..config import settings
 from ..events_store import check_ts_window, insert_events
 from ..ingest_parsing import classify_syslog, parse_upload, split_payloads
@@ -122,6 +123,23 @@ async def ingest_file(
     source: str = Form(..., description="aws, m365, ad, crowdstrike, api, firewall or network"),
     tenant: str = Depends(tenant_from_api_key),
 ) -> IngestResult:
+    return await _ingest_upload(file, source, tenant)
+
+
+@router.post("/upload", response_model=IngestResult)
+async def ingest_upload_ui(
+    file: UploadFile = File(...),
+    source: str = Form(..., description="aws, m365, ad, crowdstrike, api, firewall or network"),
+    _: object = Depends(require_admin),
+    tenant: str = Depends(scoped_tenant),
+) -> IngestResult:
+    """The same upload for the website's "Add logs" page, authenticated by the login token
+    instead of an API key. Admin only: viewers are read-only. The tenant is the one being
+    viewed (`?tenant=`), resolved by the same dependency as every read endpoint."""
+    return await _ingest_upload(file, source, tenant)
+
+
+async def _ingest_upload(file: UploadFile, source: str, tenant: str) -> IngestResult:
     _check_source(source)
     content = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(content) > MAX_UPLOAD_BYTES:

@@ -34,7 +34,7 @@ Run `make up && make seed`, then work through the assignment's acceptance checkl
 | Start in appliance mode | `make up`. It prints `{"status":"ok","database":"ok"}` |
 | Syslog appears in the UI within a minute | `./samples/send_syslog.sh`, or the PDF lines with `nc -u -w1 127.0.0.1 514`, then **Search** |
 | `POST /ingest` with the sample JSON, then search | Postman folder **Assignment samples (section 4)**, or `curl -k https://localhost/ingest -H "X-API-Key: lm_demoA_dev_key_change_me" -H "content-type: application/json" -d '<sample>'` |
-| AWS / M365 / AD files are normalized | `make demo` (file upload), then **Search** with Source = AWS / Microsoft 365 / Active Directory |
+| AWS / M365 / AD files are normalized | **Add logs** page: drop `samples/aws_cloudtrail.json` (or the M365 / AD sample), then **See them**. Or `make demo` |
 | Top N, timeline, tenant/source/time filters | **Overview**: Source filter + 1h/24h/7d, the timeline, top IPs / users / events; tenant switcher top right (admin) |
 | Alert rule fires | `make simulate` (an attack every 2 min) or `make demo`, then **Alerts**; webhook via `ALERT_WEBHOOK_URL` |
 | Viewer sees only their tenant | Sign in as `viewerA`; asking for `?tenant=demoB` returns 403 (Postman folder **Tenant isolation**) |
@@ -79,6 +79,7 @@ Notes on the samples:
 | frontend | React SPA (dashboard, search, alerts), served as static files | – |
 | postgres | PostgreSQL 16 | – |
 | vector | syslog receiver → backend | 514/udp, 514/tcp (`SYSLOG_BIND`) |
+| simulator | optional live demo traffic (`COMPOSE_PROFILES=demo` in `.env`; on in the live demo) | – |
 
 All images run on linux/amd64 and linux/arm64.
 
@@ -87,7 +88,7 @@ All images run on linux/amd64 and linux/arm64.
 |---|--------|------|
 | 1 | Syslog (firewall, network) | device → Vector :514 → backend |
 | 2 | HTTP JSON | `POST /api/ingest?source=api` with `X-API-Key` |
-| 3 | File upload (AWS, M365, AD CSV, CrowdStrike NDJSON) | `POST /api/ingest/file` with `X-API-Key` |
+| 3 | File upload (AWS, M365, AD CSV, CrowdStrike NDJSON) | `POST /api/ingest/file` with `X-API-Key`, or the **Add logs** page in the website |
 | 4 | Simulator | `samples/simulator.py` (continuous traffic + attacks) |
 
 ## Tests

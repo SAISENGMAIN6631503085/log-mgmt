@@ -54,13 +54,15 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
     if (v === undefined || v === null || v === "") continue;
     for (const item of Array.isArray(v) ? v : [v]) url.searchParams.append(k, String(item));
   }
+  // FormData (file upload) is sent as-is: the browser sets the multipart Content-Type and boundary.
+  const isForm = opts.body instanceof FormData;
   const res = await fetch(url, {
     method: opts.method ?? "GET",
     headers: {
       ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}),
-      ...(opts.body !== undefined ? { "Content-Type": "application/json" } : {}),
+      ...(opts.body !== undefined && !isForm ? { "Content-Type": "application/json" } : {}),
     },
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    body: isForm ? (opts.body as FormData) : opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
   if (!res.ok) {
     let message = res.statusText;
@@ -156,3 +158,12 @@ export type TimelinePoint = {
 };
 
 export const SOURCES = ["firewall", "network", "api", "crowdstrike", "aws", "m365", "ad"] as const;
+
+/** Response of every ingest endpoint. */
+export type IngestResult = {
+  accepted: number;
+  time_adjusted: number;
+  duplicates: number;
+  rejected_count: number;
+  rejected: { index: number; error: string }[];
+};
