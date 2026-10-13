@@ -2,7 +2,7 @@
 from collections.abc import Iterator
 from typing import Any
 
-from .common import AUTH_FAILURE, Event, clean_ip, parse_ts
+from .common import AUTH_FAILURE, Event, clean_ip, flat_cloud, flat_time, parse_ts
 
 _CREATE_PREFIXES = ("Create", "Run", "Put", "Add", "Attach", "Start")
 _DELETE_PREFIXES = ("Delete", "Terminate", "Remove", "Detach")
@@ -18,7 +18,30 @@ def iter_records(doc: Any) -> Iterator[dict[str, Any]]:
         yield doc
 
 
+def _from_flat(d: dict[str, Any]) -> dict[str, Any]:
+    """The assignment's flat AWS sample, reshaped as a CloudTrail record so one mapping serves both."""
+    cloud = flat_cloud(d)
+    status = str(d.get("status", "")).lower()
+    rec: dict[str, Any] = {
+        "eventTime": flat_time(d),
+        "eventName": d.get("event_type") or (d.get("raw") or {}).get("eventName", ""),
+        "eventSource": f"{cloud['service']}.amazonaws.com" if cloud["service"] else None,
+        "awsRegion": cloud["region"],
+        "recipientAccountId": cloud["account_id"],
+        "sourceIPAddress": d.get("src_ip") or d.get("ip"),
+        "userIdentity": {"userName": d.get("user")} if d.get("user") else {},
+    }
+    if rec["eventName"] == "ConsoleLogin" and status:
+        rec["responseElements"] = {"ConsoleLogin": "Failure" if status in ("failure", "failed") else "Success"}
+    if d.get("error_code"):
+        rec["errorCode"] = d["error_code"]
+    return rec
+
+
 def normalize(record: dict[str, Any], tenant: str, **_) -> Event:
+    original = record
+    if "eventName" not in record and "eventTime" not in record:
+        record = _from_flat(record)
     name = record.get("eventName", "")
     identity = record.get("userIdentity") or {}
     tags: list[str] = []
@@ -70,6 +93,6 @@ def normalize(record: dict[str, Any], tenant: str, **_) -> Event:
         cloud_account_id=record.get("recipientAccountId") or identity.get("accountId"),
         cloud_region=record.get("awsRegion"),
         cloud_service=(record.get("eventSource") or "").split(".")[0] or None,
-        raw=record,
+        raw=original,
         tags=tags,
     )

@@ -35,6 +35,9 @@ app.include_router(ingest.router)
 app.include_router(events.router)
 app.include_router(alerts.router)
 app.include_router(stats.router)
+# The assignment calls the JSON endpoint "POST /ingest"; serve it there too (same handler, same auth).
+app.add_api_route("/ingest", ingest.ingest_json, methods=["POST"], response_model=ingest.IngestResult,
+                  tags=["ingest"], summary="Alias of POST /api/ingest")
 
 
 @app.get("/health")

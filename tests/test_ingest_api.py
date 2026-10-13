@@ -65,9 +65,19 @@ def test_single_event(env):
 
 
 def test_tenant_comes_from_key_not_body(env):
+    # Behaviour changed on purpose: a tenant in the body that differs from the key's tenant is
+    # rejected (before, it was silently stored under the key's tenant). Nothing may land in tenant_b.
     client, tenant_a, key_a, tenant_b, _ = env
-    client.post("/api/ingest", json={"timestamp": now_iso(), "tenant": tenant_b}, headers={"X-API-Key": key_a})
-    assert count(tenant_a) == 1 and count(tenant_b) == 0
+    body = client.post("/api/ingest", json={"timestamp": now_iso(), "tenant": tenant_b}, headers={"X-API-Key": key_a}).json()
+    assert body["accepted"] == 0 and body["rejected_count"] == 1
+    assert "use that tenant's key" in body["rejected"][0]["error"]
+    assert count(tenant_a) == 0 and count(tenant_b) == 0
+
+
+def test_matching_tenant_in_body_is_accepted(env):
+    client, tenant_a, key_a, *_ = env
+    r = client.post("/api/ingest", json={"timestamp": now_iso(), "tenant": tenant_a}, headers={"X-API-Key": key_a})
+    assert r.json()["accepted"] == 1 and count(tenant_a) == 1
 
 
 @pytest.mark.parametrize("headers", [{}, {"X-API-Key": "lm_wrong"}])
@@ -88,14 +98,13 @@ def test_batch_partial_success(env):
     batch = [
         {"timestamp": now_iso(), "event_type": "ok"},
         {"timestamp": "not a date"},
-        {"timestamp": now_iso(days=-30)},  # outside retention
+        {"timestamp": now_iso(days=-30)},  # outside retention: stored at receipt time, tagged
         {"timestamp": now_iso(), "severity": 3},
     ]
     body = client.post("/api/ingest", json=batch, headers={"X-API-Key": key}).json()
-    assert body["accepted"] == 2 and body["rejected_count"] == 2
-    assert [r["index"] for r in body["rejected"]] == [1, 2]
-    assert "retention" in body["rejected"][1]["error"]
-    assert count(tenant) == 2
+    assert body["accepted"] == 3 and body["rejected_count"] == 1 and body["time_adjusted"] == 1
+    assert [r["index"] for r in body["rejected"]] == [1]
+    assert count(tenant) == 3
 
 
 def test_other_json_source_via_query(env):

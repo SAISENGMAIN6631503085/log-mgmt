@@ -32,7 +32,7 @@ def normalize(line: str, tenant: str, *, now: datetime | None = None) -> Event:
         protocol=(kv.get("protocol") or "").lower() or None,
         user=kv.get("user"),
         host=msg.host,
-        rule_name=kv.get("rule_name"),
+        rule_name=kv.get("rule_name") or kv.get("policy"),  # e.g. policy=Block-DNS
         rule_id=kv.get("rule_id"),
         raw={"message": line},
         tags=["blocked"] if action == "deny" else [],

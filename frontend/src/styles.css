@@ -240,6 +240,11 @@ button:disabled { opacity: 0.5; cursor: default; }
 .card-body { padding: 14px 18px 18px; flex: 1; display: flex; flex-direction: column; }
 .card-foot { margin-top: auto; padding-top: 14px; }
 .card-body.flush { padding: 8px 0 4px; }
+.grid-3 { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.header-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.inline-select { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 4px 0 12px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); color: var(--text-2); font-size: 13px; }
+.inline-select select { height: 30px; border: none; background: var(--surface); box-shadow: var(--shadow); font-weight: 500; }
 .grid-2 { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); }
 .kpis { display: grid; gap: 16px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @media (max-width: 1180px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

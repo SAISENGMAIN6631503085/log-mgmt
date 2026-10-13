@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, Stats } from "../api";
+import { api, SOURCES, Stats } from "../api";
 import { Empty } from "../components/Badge";
 import { ChartCard } from "../components/ChartCard";
 import { Delta, EventsOverTime, HBars } from "../components/Charts";
@@ -71,6 +71,7 @@ const pct = (part: number, whole: number) => (whole ? Math.round((part / whole) 
 
 export function Dashboard({ tenant, tenantName }: { tenant: string | undefined; tenantName: string }) {
   const [range, setRange] = useState<RangeKey>("24h");
+  const [source, setSource] = useState("");  // "" = all sources
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const t = useTokens();
@@ -78,16 +79,16 @@ export function Dashboard({ tenant, tenantName }: { tenant: string | undefined; 
   useEffect(() => {
     let cancelled = false;
     setError(null);
-    api<Stats>("/api/stats", { params: { ...rangeParams(range), tenant } })
+    api<Stats>("/api/stats", { params: { ...rangeParams(range), tenant, source: source || undefined } })
       .then((s) => !cancelled && setStats(s))
       .catch((e) => !cancelled && setError(e.message));
     return () => {
       cancelled = true;
     };
-  }, [range, tenant]);
+  }, [range, tenant, source]);
 
-  // Links into the search page carry the same time range.
-  const search = (params: Record<string, string>) => go("events", { range, ...params });
+  // Links into the search page carry the same time range and source filter.
+  const search = (params: Record<string, string>) => go("events", { range, ...(source ? { source } : {}), ...params });
   const rangeLong = RANGES.find((r) => r.key === range)!.long;
 
   let body = null;
@@ -160,10 +161,13 @@ export function Dashboard({ tenant, tenantName }: { tenant: string | undefined; 
           </ChartCard>
         </div>
 
-        <div className="grid-2">
-          <RankTable title="Busiest IP addresses" subtitle="Click a row to see its events" head="IP address" mono extra="Failed sign-ins"
+        <div className="grid-3">
+          <RankTable title="Busiest IP addresses" subtitle="Click a row to see its events" head="IP address" mono extra="Failed"
                      rows={stats.top_src_ips.map((r) => ({ key: r.key, n: r.n, extra: r.auth_failures }))}
                      onRow={(ip) => search({ src_ip: ip })} />
+          <RankTable title="Most active users" subtitle="Click a row to see their events" head="User" extra="Failed"
+                     rows={stats.top_users.map((r) => ({ key: r.key, n: r.n, extra: r.auth_failures }))}
+                     onRow={(user) => search({ user })} />
           <RankTable title="Most common activity" subtitle="Click a row to see those events" head="Event"
                      rows={stats.top_event_types} onRow={(et) => search({ event_type: et })} />
         </div>
@@ -176,9 +180,21 @@ export function Dashboard({ tenant, tenantName }: { tenant: string | undefined; 
       <header className="page-header">
         <div>
           <h1>Overview</h1>
-          <p>What happened in <strong>{tenantName}</strong> in the {rangeLong}. Click anything to see the events behind it.</p>
+          <p>
+            What happened in <strong>{tenantName}</strong> in the {rangeLong}
+            {source ? <> from <strong>{sourceLabel(source)}</strong></> : null}. Click anything to see the events behind it.
+          </p>
         </div>
-        <Segmented label="Time range" value={range} options={RANGES} onChange={setRange} />
+        <div className="header-controls">
+          <label className="inline-select">
+            <span>Source</span>
+            <select value={source} onChange={(e) => setSource(e.target.value)} aria-label="Source filter">
+              <option value="">All sources</option>
+              {SOURCES.map((s) => <option key={s} value={s}>{sourceLabel(s)}</option>)}
+            </select>
+          </label>
+          <Segmented label="Time range" value={range} options={RANGES} onChange={setRange} />
+        </div>
       </header>
       <div className="page-body">
         {error && <div className="error-banner" role="alert"><Icon name="alert" size={16} />{error}</div>}

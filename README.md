@@ -21,6 +21,26 @@ The browser warns about the certificate in appliance mode; see
 
 Change the secrets in `.env` before running this anywhere real.
 
+## Checking the assignment requirements
+Run `make up && make seed`, then work through the assignment's acceptance checklist:
+
+| Assignment checklist item | How to check it |
+|---|---|
+| Start in appliance mode | `make up`. It prints `{"status":"ok","database":"ok"}` |
+| Syslog appears in the UI within a minute | `./samples/send_syslog.sh`, or the PDF lines with `nc -u -w1 127.0.0.1 514`, then **Search** |
+| `POST /ingest` with the sample JSON, then search | Postman folder **Assignment samples (section 4)**, or `curl -k https://localhost/ingest -H "X-API-Key: lm_demoA_dev_key_change_me" -H "content-type: application/json" -d '<sample>'` |
+| AWS / M365 / AD files are normalized | `make demo` (file upload), then **Search** with Source = AWS / Microsoft 365 / Active Directory |
+| Top N, timeline, tenant/source/time filters | **Overview**: Source filter + 1h/24h/7d, the timeline, top IPs / users / events; tenant switcher top right (admin) |
+| Alert rule fires | `make simulate` (an attack every 2 min) or `make demo`, then **Alerts**; webhook via `ALERT_WEBHOOK_URL` |
+| Viewer sees only their tenant | Sign in as `viewerA`; asking for `?tenant=demoB` returns 403 (Postman folder **Tenant isolation**) |
+| SaaS over HTTPS | [docs/setup_saas.md](docs/setup_saas.md) |
+
+Notes on the samples:
+- The PDF samples are dated 2025, older than the 7-day retention. They are stored at the time they
+  arrive and tagged **time_adjusted**; the original time is kept in the raw log. Search the last 24 h to find them.
+- Each sample must be sent with **its own tenant's key** (demoA samples with the demoA key). A sample
+  sent with another tenant's key is rejected.
+
 ## Documentation
 | Doc | Contents |
 |-----|----------|

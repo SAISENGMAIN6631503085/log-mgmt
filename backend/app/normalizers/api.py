@@ -60,6 +60,7 @@ def normalize(payload: dict[str, Any], tenant: str, *, now: datetime | None = No
         dst_port=to_port(d.get("dst_port")),
         user=d.get("user") or d.get("username"),
         host=d.get("host"),
+        process=d.get("process"),
         url=d.get("url") or d.get("path"),
         http_method=(d.get("http_method") or d.get("method") or "").upper() or None,
         status_code=status,

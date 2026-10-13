@@ -85,14 +85,21 @@ Re-uploading a file or Vector retrying a batch is therefore safe.
 
 | Endpoint | Auth | Body |
 |----------|------|------|
-| `POST /api/ingest?source=api` | `X-API-Key` | one JSON event or an array; `source` may be any JSON source (`aws` accepts `{"Records": [...]}`) |
+| `POST /api/ingest` (alias `POST /ingest`) | `X-API-Key` | one JSON event or an array. The normalizer comes from `?source=`, else each event's own `"source"` field, else `api`. A `{"Records": [...]}` body is CloudTrail. |
 | `POST /api/ingest/file` | `X-API-Key` | multipart: `source` + `file` (.json, .ndjson/.jsonl, .csv, .log/.txt), max 50 MB |
 | `POST /api/ingest/syslog` | `X-Ingest-Token` | internal, Vector only; blocked by Caddy from outside |
 
 Rules:
-- **The tenant always comes from the API key** (or, for syslog, from the sender IP). A `tenant` field in the body is ignored and kept only in `raw`.
+- **The tenant always comes from the API key** (or, for syslog, from the sender IP). An event whose own
+  `tenant` field names a *different* tenant is **rejected** with a clear message. It is not silently
+  re-labelled, so a wrong key or a cross-tenant write attempt is visible.
+- Each normalizer accepts the vendor's real format (CloudTrail, M365 Management API, Falcon, Windows
+  event export) **and** the flat format used in the assignment's samples (`@timestamp`, `event_type`, `user`, `ip`, `cloud: {...}`).
 - At most 10,000 events per request; above that the request gets 413.
-- Events older than `RETENTION_DAYS` or more than 1 day in the future are rejected, since they could not be stored or would be deleted right away.
+- Events older than `RETENTION_DAYS` or more than 1 day in the future are **stored at the receipt time,
+  tagged `time_adjusted`**, and keep their original timestamp in `raw`. The response counts them in
+  `time_adjusted`. Storing them at their real (old) time would get them deleted by retention within
+  the hour, and rejecting them would drop real activity from devices with a wrong clock or from old sample files.
 - Demo keys come from `SEED_API_KEYS` and are created by `make seed`.
 
 ```

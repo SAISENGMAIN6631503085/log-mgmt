@@ -1,7 +1,7 @@
 """Active Directory / Windows Security events (CSV export rows or JSON) -> Event."""
 from typing import Any
 
-from .common import AUTH_FAILURE, Event, blank_to_none, clean_ip, parse_ts, to_int, to_port
+from .common import AUTH_FAILURE, Event, blank_to_none, clean_ip, flat_time, parse_ts, to_int, to_port
 
 # EventID -> (event_type, action, severity, tags). Only the IDs a SOC usually watches.
 _EVENTS: dict[int, tuple[str, str | None, int, list[str]]] = {
@@ -14,9 +14,28 @@ _EVENTS: dict[int, tuple[str, str | None, int, list[str]]] = {
 }
 
 
+def _from_flat(d: dict[str, Any]) -> dict[str, Any]:
+    """The assignment's flat AD sample ({"event_id": 4625, "user": ..., "ip": ...}), reshaped as an export row."""
+    return {
+        "TimeCreated": flat_time(d),
+        "EventID": d.get("event_id"),
+        "TargetUserName": d.get("user"),
+        "Computer": d.get("host"),
+        "IpAddress": d.get("src_ip") or d.get("ip"),
+        "IpPort": d.get("src_port"),
+        "LogonType": d.get("logon_type"),
+        "_event_type": d.get("event_type"),
+    }
+
+
 def normalize(row: dict[str, Any], tenant: str, **_) -> Event:
+    original = row
+    if "EventID" not in row and "TimeCreated" not in row:
+        row = _from_flat(row)
     event_id = to_int(row.get("EventID"))
-    event_type, action, severity, tags = _EVENTS.get(event_id, (f"event_{event_id}", None, 2, []))
+    # Unknown IDs keep the sender's own event_type name if it gave one.
+    fallback = row.get("_event_type") or f"event_{event_id}"
+    event_type, action, severity, tags = _EVENTS.get(event_id, (fallback, None, 2, []))
     return Event(
         ts=parse_ts(row.get("TimeCreated")),
         tenant=tenant,
@@ -31,6 +50,6 @@ def normalize(row: dict[str, Any], tenant: str, **_) -> Event:
         src_port=to_port(row.get("IpPort")),
         user=blank_to_none(row.get("TargetUserName")),
         host=blank_to_none(row.get("Computer")),
-        raw=dict(row),
+        raw=dict(original),
         tags=list(tags),  # copy: the table's lists must not be shared between events
     )

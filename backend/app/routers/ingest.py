@@ -25,6 +25,9 @@ MAX_ERRORS_RETURNED = 100  # keep responses small when a whole file is bad
 _TENANT_MAP = parse_tenant_map(settings.syslog_tenant_map)
 
 
+TIME_ADJUSTED = "time_adjusted"  # tag on events whose own timestamp couldn't be used
+
+
 class Rejected(BaseModel):
     index: int
     error: str
@@ -32,6 +35,7 @@ class Rejected(BaseModel):
 
 class IngestResult(BaseModel):
     accepted: int
+    time_adjusted: int = 0  # stored with the receipt time because their own time was out of range
     duplicates: int  # valid events that were already stored (e.g. the same file uploaded twice)
     rejected_count: int
     rejected: list[Rejected]
@@ -49,23 +53,38 @@ async def _process(items: list[tuple[str, Any, str]]) -> IngestResult:
 
     Partial success on purpose: one malformed line in a 10k-line file shouldn't block the
     other 9,999. The caller gets each rejected index and why.
+
+    Timestamps outside [now - RETENTION_DAYS, now + 1 day] are not rejected: the event is
+    stored at the receipt time and tagged "time_adjusted"; its original time stays in `raw`.
+    Old sample files and devices with a wrong clock are common, and dropping their events
+    would hide real activity. Storing them at their real (old) time doesn't work either,
+    because the retention job would delete them within the hour.
     """
     if len(items) > MAX_EVENTS_PER_REQUEST:
         raise HTTPException(413, f"too many events: {len(items)} > {MAX_EVENTS_PER_REQUEST}; split the batch")
     now = datetime.now(timezone.utc)
-    events, rejected = [], []
+    events, rejected, adjusted = [], [], 0
     for i, (source, payload, tenant) in enumerate(items):
         try:
+            if source not in NORMALIZERS:
+                raise ValueError(f"unknown source {source!r}; expected one of {sorted(NORMALIZERS)}")
+            # A tenant written inside the event must match the API key's tenant. Rejecting (not
+            # silently re-labelling) makes a wrong key or a cross-tenant write attempt visible.
+            if isinstance(payload, dict) and payload.get("tenant") not in (None, "", tenant):
+                raise ValueError(f"event says tenant {payload['tenant']!r} but this API key belongs to "
+                                 f"tenant {tenant!r}; use that tenant's key")
             ev = normalize(source, payload, tenant, now=now)
-            if err := check_ts_window(ev.ts, settings.retention_days, now):
-                raise ValueError(err)
+            if check_ts_window(ev.ts, settings.retention_days, now):
+                ev.ts = now
+                ev.tags.append(TIME_ADJUSTED)
+                adjusted += 1
             events.append(ev)
         except (ValueError, TypeError, KeyError, AttributeError) as exc:  # ValidationError is a ValueError
             rejected.append(Rejected(index=i, error=_error_text(exc)))
 
     async with db.pool.acquire() as conn:
         accepted = await insert_events(conn, events)
-    return IngestResult(accepted=accepted, duplicates=len(events) - accepted, rejected_count=len(rejected), rejected=rejected[:MAX_ERRORS_RETURNED])
+    return IngestResult(accepted=accepted, time_adjusted=adjusted, duplicates=len(events) - accepted, rejected_count=len(rejected), rejected=rejected[:MAX_ERRORS_RETURNED])
 
 
 def _check_source(source: str) -> None:
@@ -76,15 +95,25 @@ def _check_source(source: str) -> None:
 @router.post("", response_model=IngestResult)
 async def ingest_json(
     body: Any = Body(..., description="One event, an array of events, or a CloudTrail Records file"),
-    source: str = Query("api", description="Which normalizer to use"),
+    source: str | None = Query(None, description="Normalizer for every event. If omitted, each event's own "
+                                                 "\"source\" field is used, else \"api\"."),
     tenant: str = Depends(tenant_from_api_key),
 ) -> IngestResult:
-    _check_source(source)
+    if source is None and isinstance(body, dict) and "Records" in body:
+        source = "aws"  # a CloudTrail file is unambiguous even without ?source=
+    if source is not None:
+        _check_source(source)
     try:
-        payloads = split_payloads(source, body)
+        payloads = split_payloads(source or "", body)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
-    return await _process([(source, p, tenant) for p in payloads])
+
+    def source_of(p: Any) -> str:
+        if source:
+            return source
+        return str(p.get("source") or "api").lower() if isinstance(p, dict) else "api"
+
+    return await _process([(source_of(p), p, tenant) for p in payloads])
 
 
 @router.post("/file", response_model=IngestResult)

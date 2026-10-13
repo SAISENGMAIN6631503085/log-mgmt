@@ -20,7 +20,7 @@
 	}
 
 	# Backend owns /api/*, /health and the interactive API docs; everything else is the React SPA.
-	@backend path /api/* /health /docs /openapi.json
+	@backend path /api/* /ingest /health /docs /openapi.json
 	handle @backend {
 		reverse_proxy backend:8000
 	}

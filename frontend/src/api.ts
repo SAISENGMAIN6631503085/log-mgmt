@@ -140,6 +140,7 @@ export type Stats = {
   by_source: { key: string; n: number }[];
   by_severity: { key: string; n: number }[];
   top_src_ips: { key: string; n: number; auth_failures: number }[];
+  top_users: { key: string; n: number; auth_failures: number }[];
   top_event_types: { key: string; n: number }[];
 };
 

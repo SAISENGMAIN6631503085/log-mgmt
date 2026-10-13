@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .. import db
 from ..auth import Claims, require_admin, scoped_tenant
+from ..normalizers.common import Source
 
 router = APIRouter(prefix="/api", tags=["stats"])
 
@@ -24,6 +25,7 @@ async def stats(
     tenant: str = Depends(scoped_tenant),
     start: datetime | None = Query(None, alias="from"),
     end: datetime | None = Query(None, alias="to"),
+    source: list[Source] = Query([], description="Only these sources (repeatable); default all"),
 ) -> dict[str, Any]:
     end = end or datetime.now(timezone.utc)
     start = start or end - timedelta(hours=24)
@@ -31,7 +33,8 @@ async def stats(
     if start >= end:
         raise HTTPException(422, "`from` must be before `to`")
     bucket = bucket_for(end - start)
-    scope = (tenant, start, end)  # $1, $2, $3 in every query below
+    # $1 tenant, $2 from, $3 to, $4 sources (NULL = all) in every events query below.
+    scope = (tenant, start, end, source or None)
 
     async with db.pool.acquire() as conn:
         totals = await conn.fetchrow(
@@ -39,7 +42,7 @@ async def stats(
                       count(*) FILTER (WHERE _tags @> '{auth_failure}') AS auth_failures,
                       count(*) FILTER (WHERE severity >= 7) AS high_severity,
                       count(DISTINCT src_ip) AS unique_src_ips
-               FROM events WHERE tenant = $1 AND ts >= $2 AND ts < $3""", *scope)
+               FROM events WHERE tenant = $1 AND ts >= $2 AND ts < $3 AND ($4::text[] IS NULL OR source = ANY($4))""", *scope)
         open_alerts = await conn.fetchval(
             "SELECT count(*) FROM alerts WHERE tenant = $1 AND status = 'open'", tenant)
         # generate_series + LEFT JOIN: empty buckets show as 0 instead of disappearing,
@@ -48,9 +51,9 @@ async def stats(
         # failed logins / high severity (for the KPI sparklines).
         timeline = await conn.fetch(
             """WITH buckets AS (
-                   SELECT generate_series(date_bin($4::interval, $2, 'epoch'), $3, $4::interval) AS t),
+                   SELECT generate_series(date_bin($5::interval, $2, 'epoch'), $3, $5::interval) AS t),
                agg AS (
-                   SELECT date_bin($4::interval, ts, 'epoch') AS t,
+                   SELECT date_bin($5::interval, ts, 'epoch') AS t,
                           count(*) AS n,
                           count(*) FILTER (WHERE severity >= 9) AS critical,
                           count(*) FILTER (WHERE severity BETWEEN 7 AND 8) AS high,
@@ -58,7 +61,7 @@ async def stats(
                           count(*) FILTER (WHERE severity <= 3) AS low,
                           count(*) FILTER (WHERE severity IS NULL) AS unknown,
                           count(*) FILTER (WHERE _tags @> '{auth_failure}') AS auth_failures
-                   FROM events WHERE tenant = $1 AND ts >= $2 AND ts < $3
+                   FROM events WHERE tenant = $1 AND ts >= $2 AND ts < $3 AND ($4::text[] IS NULL OR source = ANY($4))
                    GROUP BY 1)
                SELECT b.t, coalesce(a.n, 0) AS n, coalesce(a.critical, 0) AS critical,
                       coalesce(a.high, 0) AS high, coalesce(a.medium, 0) AS medium,
@@ -71,28 +74,36 @@ async def stats(
                       count(*) FILTER (WHERE _tags @> '{auth_failure}') AS auth_failures,
                       count(*) FILTER (WHERE severity >= 7) AS high_severity
                FROM events WHERE tenant = $1 AND ts >= $2::timestamptz - ($3::timestamptz - $2::timestamptz)
-                 AND ts < $2::timestamptz""", *scope)
+                 AND ts < $2::timestamptz AND ($4::text[] IS NULL OR source = ANY($4))""", *scope)
         # Source x time bucket counts for the activity heatmap (only non-empty cells).
         source_timeline = await conn.fetch(
-            """SELECT source, date_bin($4::interval, ts, 'epoch') AS t, count(*) AS n
-               FROM events WHERE tenant = $1 AND ts >= $2 AND ts < $3
+            """SELECT source, date_bin($5::interval, ts, 'epoch') AS t, count(*) AS n
+               FROM events WHERE tenant = $1 AND ts >= $2 AND ts < $3 AND ($4::text[] IS NULL OR source = ANY($4))
                GROUP BY 1, 2""", *scope, bucket)
         by_source = await conn.fetch(
             """SELECT source AS key, count(*) AS n FROM events
-               WHERE tenant = $1 AND ts >= $2 AND ts < $3 GROUP BY source ORDER BY n DESC""", *scope)
+               WHERE tenant = $1 AND ts >= $2 AND ts < $3 AND ($4::text[] IS NULL OR source = ANY($4))
+               GROUP BY source ORDER BY n DESC""", *scope)
         by_severity = await conn.fetch(
             """SELECT CASE WHEN severity >= 9 THEN 'critical' WHEN severity >= 7 THEN 'high'
                            WHEN severity >= 4 THEN 'medium' WHEN severity IS NOT NULL THEN 'low'
                            ELSE 'unknown' END AS key, count(*) AS n
-               FROM events WHERE tenant = $1 AND ts >= $2 AND ts < $3 GROUP BY 1""", *scope)
+               FROM events WHERE tenant = $1 AND ts >= $2 AND ts < $3 AND ($4::text[] IS NULL OR source = ANY($4)) GROUP BY 1""", *scope)
         top_src_ips = await conn.fetch(
             """SELECT host(src_ip) AS key, count(*) AS n,
                       count(*) FILTER (WHERE _tags @> '{auth_failure}') AS auth_failures
-               FROM events WHERE tenant = $1 AND ts >= $2 AND ts < $3 AND src_ip IS NOT NULL
+               FROM events WHERE tenant = $1 AND ts >= $2 AND ts < $3 AND ($4::text[] IS NULL OR source = ANY($4)) AND src_ip IS NOT NULL
                GROUP BY src_ip ORDER BY n DESC LIMIT 10""", *scope)
+        top_users = await conn.fetch(
+            """SELECT username AS key, count(*) AS n,
+                      count(*) FILTER (WHERE _tags @> '{auth_failure}') AS auth_failures
+               FROM events WHERE tenant = $1 AND ts >= $2 AND ts < $3 AND ($4::text[] IS NULL OR source = ANY($4))
+                 AND username IS NOT NULL
+               GROUP BY username ORDER BY n DESC LIMIT 10""", *scope)
         top_event_types = await conn.fetch(
             """SELECT event_type AS key, count(*) AS n FROM events
-               WHERE tenant = $1 AND ts >= $2 AND ts < $3 AND event_type IS NOT NULL
+               WHERE tenant = $1 AND ts >= $2 AND ts < $3 AND ($4::text[] IS NULL OR source = ANY($4))
+                 AND event_type IS NOT NULL
                GROUP BY event_type ORDER BY n DESC LIMIT 10""", *scope)
 
     severity_order = ["critical", "high", "medium", "low", "unknown"]
@@ -101,6 +112,7 @@ async def stats(
         "tenant": tenant,
         "from": start.isoformat(),
         "to": end.isoformat(),
+        "sources": source,
         "bucket_seconds": int(bucket.total_seconds()),
         "totals": dict(totals) | {"open_alerts": open_alerts},
         "previous": dict(previous),
@@ -110,6 +122,7 @@ async def stats(
         # Fixed order (severity is ordinal), zeros included so the chart shape is stable.
         "by_severity": [{"key": k, "n": sev.get(k, 0)} for k in severity_order],
         "top_src_ips": [dict(r) for r in top_src_ips],
+        "top_users": [dict(r) for r in top_users],
         "top_event_types": [dict(r) for r in top_event_types],
     }
 

@@ -54,7 +54,7 @@ def post(client, key, body, source="api"):
 def test_same_batch_twice_is_stored_once(env):
     client, ta, ka, *_ = env
     batch = [{"timestamp": ts(1), "event_type": "a"}, {"timestamp": ts(2), "event_type": "b"}]
-    assert post(client, ka, batch) | {"rejected": []} == {"accepted": 2, "duplicates": 0, "rejected_count": 0, "rejected": []}
+    assert post(client, ka, batch) | {"rejected": []} == {"accepted": 2, "time_adjusted": 0, "duplicates": 0, "rejected_count": 0, "rejected": []}
     second = post(client, ka, batch)
     assert (second["accepted"], second["duplicates"]) == (0, 2)
     assert count(ta) == 2

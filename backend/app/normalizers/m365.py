@@ -1,13 +1,30 @@
 """Microsoft 365 Management Activity API audit records -> Event."""
 from typing import Any
 
-from .common import AUTH_FAILURE, Event, clean_ip, parse_ts
+from .common import AUTH_FAILURE, Event, clean_ip, flat_time, parse_ts
 
 _FAILED = {"failed", "failure"}
 _LOGIN_OPS = {"UserLoggedIn", "UserLoginFailed"}
 
 
+def _from_flat(d: dict[str, Any]) -> dict[str, Any]:
+    """The assignment's flat M365 sample, reshaped as a Management Activity record."""
+    return {
+        "CreationTime": flat_time(d),
+        "Operation": d.get("event_type", ""),
+        "UserId": d.get("user"),
+        "ClientIP": d.get("src_ip") or d.get("ip"),
+        "ResultStatus": d.get("status"),
+        "Workload": d.get("workload"),
+        "LogonError": d.get("reason"),
+        "OrganizationId": d.get("organization_id"),
+    }
+
+
 def normalize(record: dict[str, Any], tenant: str, **_) -> Event:
+    original = record
+    if "Operation" not in record and "CreationTime" not in record:
+        record = _from_flat(record)
     op = record.get("Operation", "")
     failed = str(record.get("ResultStatus", "")).lower() in _FAILED or op == "UserLoginFailed"
     tags: list[str] = []
@@ -45,6 +62,6 @@ def normalize(record: dict[str, Any], tenant: str, **_) -> Event:
         url=record.get("ObjectId") if str(record.get("ObjectId", "")).startswith("http") else None,
         cloud_account_id=record.get("OrganizationId"),
         cloud_service=record.get("Workload"),
-        raw=record,
+        raw=original,
         tags=tags,
     )

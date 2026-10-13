@@ -14,9 +14,10 @@ def normalize(line: str, tenant: str, *, now: datetime | None = None) -> Event:
         source="network",
         vendor=kv.get("vendor"),
         product=kv.get("product"),
-        # Fall back to the program tag (e.g. Cisco "%LINK-3-UPDOWN") when there is no event_type.
-        event_type=kv.get("event_type") or (msg.tag.lstrip("%") if msg.tag else "system"),
-        event_subtype=kv.get("interface"),
+        # event_type=/event= (Juniper-style "event=link-down"), else the program tag
+        # (Cisco "%LINK-3-UPDOWN"), else "system".
+        event_type=kv.get("event_type") or kv.get("event") or (msg.tag.lstrip("%") if msg.tag else "system"),
+        event_subtype=kv.get("interface") or kv.get("if") or kv.get("reason"),
         severity=msg.severity,
         src_ip=clean_ip(kv.get("src_ip")),
         src_port=to_port(kv.get("src_port")),

@@ -265,6 +265,276 @@
       ]
     },
     {
+      "name": "Assignment samples (section 4)",
+      "description": "POST /ingest with each sample exactly as printed in the assignment. demoA samples use apiKeyA, demoB samples use apiKeyB.",
+      "item": [
+        {
+          "name": "4.3 API",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKeyA}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ingest",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ingest"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant\": \"demoA\",\n  \"source\": \"api\",\n  \"event_type\": \"app_login_failed\",\n  \"user\": \"alice\",\n  \"ip\": \"203.0.113.7\",\n  \"reason\": \"wrong_password\",\n  \"@timestamp\": \"2025-08-20T07:20:00Z\"\n}"
+            },
+            "description": "Exact sample from the assignment, section 4. Dated 2025, so it is stored at receipt time with the tag time_adjusted (original time kept in raw)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.expect(pm.response.json().accepted).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.4 CrowdStrike",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKeyA}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ingest",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ingest"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant\": \"demoA\",\n  \"source\": \"crowdstrike\",\n  \"event_type\": \"malware_detected\",\n  \"host\": \"WIN10-01\",\n  \"process\": \"powershell.exe\",\n  \"severity\": 8,\n  \"sha256\": \"abc...\",\n  \"action\": \"quarantine\",\n  \"@timestamp\": \"2025-08-20T08:00:00Z\"\n}"
+            },
+            "description": "Exact sample from the assignment, section 4. Dated 2025, so it is stored at receipt time with the tag time_adjusted (original time kept in raw)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.expect(pm.response.json().accepted).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.5 AWS CloudTrail",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKeyB}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ingest",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ingest"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant\": \"demoB\",\n  \"source\": \"aws\",\n  \"cloud\": {\n    \"service\": \"iam\",\n    \"account_id\": \"123456789012\",\n    \"region\": \"ap-southeast-1\"\n  },\n  \"event_type\": \"CreateUser\",\n  \"user\": \"admin\",\n  \"@timestamp\": \"2025-08-20T09:10:00Z\",\n  \"raw\": {\n    \"eventName\": \"CreateUser\",\n    \"requestParameters\": {\n      \"userName\": \"temp-user\"\n    }\n  }\n}"
+            },
+            "description": "Exact sample from the assignment, section 4. Dated 2025, so it is stored at receipt time with the tag time_adjusted (original time kept in raw)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.expect(pm.response.json().accepted).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.6 Microsoft 365",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKeyB}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ingest",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ingest"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant\": \"demoB\",\n  \"source\": \"m365\",\n  \"event_type\": \"UserLoggedIn\",\n  \"user\": \"bob@demo.local\",\n  \"ip\": \"198.51.100.23\",\n  \"status\": \"Success\",\n  \"workload\": \"Exchange\",\n  \"@timestamp\": \"2025-08-20T10:05:00Z\"\n}"
+            },
+            "description": "Exact sample from the assignment, section 4. Dated 2025, so it is stored at receipt time with the tag time_adjusted (original time kept in raw)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.expect(pm.response.json().accepted).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.7 AD 4625",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKeyA}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ingest",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ingest"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant\": \"demoA\",\n  \"source\": \"ad\",\n  \"event_id\": 4625,\n  \"event_type\": \"LogonFailed\",\n  \"user\": \"demo\\\\eve\",\n  \"host\": \"DC01\",\n  \"ip\": \"203.0.113.77\",\n  \"logon_type\": 3,\n  \"@timestamp\": \"2025-08-20T11:11:11Z\"\n}"
+            },
+            "description": "Exact sample from the assignment, section 4. Dated 2025, so it is stored at receipt time with the tag time_adjusted (original time kept in raw)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.expect(pm.response.json().accepted).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Wrong tenant's key is rejected",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKeyA}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ingest",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ingest"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant\": \"demoB\",\n  \"source\": \"aws\",\n  \"cloud\": {\n    \"service\": \"iam\",\n    \"account_id\": \"123456789012\",\n    \"region\": \"ap-southeast-1\"\n  },\n  \"event_type\": \"CreateUser\",\n  \"user\": \"admin\",\n  \"@timestamp\": \"2025-08-20T09:10:00Z\",\n  \"raw\": {\n    \"eventName\": \"CreateUser\",\n    \"requestParameters\": {\n      \"userName\": \"temp-user\"\n    }\n  }\n}"
+            },
+            "description": "The demoB AWS sample sent with demoA's key: rejected, nothing stored."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('rejected', () => pm.expect(pm.response.json().rejected_count).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "Ingest",
       "item": [
         {
@@ -358,7 +628,7 @@
           ]
         },
         {
-          "name": "Tenant in body is ignored",
+          "name": "Tenant in body must match the key (rejected)",
           "request": {
             "method": "POST",
             "header": [
@@ -381,7 +651,7 @@
                 "ingest"
               ]
             },
-            "description": "Stored under demoA (the key's tenant); 'tenant' stays only in raw.",
+            "description": "demoA's key with \"tenant\": \"demoB\" in the event: rejected with a clear message, nothing stored.",
             "auth": {
               "type": "noauth"
             },
@@ -397,7 +667,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('status 200', () => pm.response.to.have.status(200));",
-                  "pm.test('stored for the key\\'s tenant', () => pm.expect(pm.response.json().accepted).to.eql(1));"
+                  "pm.test('rejected, not re-labelled', () => pm.expect(pm.response.json().rejected_count).to.eql(1));"
                 ]
               }
             }

@@ -138,3 +138,18 @@ def parse_ts(v: Any) -> datetime:
     else:
         raise ValueError(f"missing or unparseable timestamp: {v!r}")
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+
+
+def flat_time(d: dict[str, Any]) -> Any:
+    """Timestamp from the flat sample format used in the assignment ("@timestamp")."""
+    return d.get("@timestamp") or d.get("timestamp") or d.get("time")
+
+
+def flat_cloud(d: dict[str, Any]) -> dict[str, Any]:
+    """Accept both {"cloud": {"service": ...}} and flat cloud_service / cloud.service keys."""
+    c = d.get("cloud") if isinstance(d.get("cloud"), dict) else {}
+    return {
+        "service": c.get("service") or d.get("cloud_service") or d.get("cloud.service"),
+        "account_id": c.get("account_id") or d.get("cloud_account_id") or d.get("cloud.account_id"),
+        "region": c.get("region") or d.get("cloud_region") or d.get("cloud.region"),
+    }

@@ -1,10 +1,41 @@
-"""CrowdStrike Falcon streaming API events (DetectionSummaryEvent) -> Event."""
+"""CrowdStrike -> Event. Accepts Falcon streaming API events (DetectionSummaryEvent) and the
+flat format used in the assignment ({"event_type": "malware_detected", "host": ..., "severity": 8})."""
 from typing import Any
 
-from .common import Event, clean_ip, parse_ts, to_int
+from .common import Event, clean_ip, flat_time, parse_ts, to_int, unify_aliases
+
+_ACTIONS = {"allow", "deny", "create", "delete", "login", "logout", "alert", "quarantine"}
+
+
+def _normalize_flat(payload: dict[str, Any], tenant: str) -> Event:
+    d = unify_aliases(payload)
+    severity = to_int(d.get("severity"))
+    action = str(d.get("action") or "").lower()
+    action = action if action in _ACTIONS else "alert"
+    return Event(
+        ts=parse_ts(flat_time(d)),
+        tenant=tenant,
+        source="crowdstrike",
+        vendor=d.get("vendor") or "CrowdStrike",
+        product=d.get("product") or "Falcon",
+        event_type=d.get("event_type"),
+        event_subtype=d.get("event_subtype"),
+        severity=severity if severity is not None and 0 <= severity <= 10 else None,
+        action=action,
+        src_ip=clean_ip(d.get("src_ip")),
+        user=d.get("user"),
+        host=d.get("host"),
+        process=d.get("process"),
+        rule_name=d.get("rule_name"),
+        rule_id=d.get("rule_id"),
+        raw=payload,
+        tags=["edr_detection"] + (["quarantined"] if action == "quarantine" else []),
+    )
 
 
 def normalize(payload: dict[str, Any], tenant: str, **_) -> Event:
+    if "metadata" not in payload and "event" not in payload:
+        return _normalize_flat(payload, tenant)
     meta = payload.get("metadata", {})
     ev = payload.get("event", {})
     flags = ev.get("PatternDispositionFlags") or {}

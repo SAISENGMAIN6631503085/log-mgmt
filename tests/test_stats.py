@@ -134,3 +134,19 @@ def test_source_timeline_matches_by_source(env):
     for c in d["source_timeline"]:
         per_source[c["source"]] = per_source.get(c["source"], 0) + c["n"]
     assert per_source == {r["key"]: r["n"] for r in d["by_source"]}
+
+
+def test_top_users(env):
+    client, t, _ = env
+    d = get(client, t).json()
+    # setup inserts no usernames, so the list is empty but present
+    assert d["top_users"] == []
+
+
+def test_source_filter(env):
+    client, t, _ = env
+    d = get(client, t, source=["ad"]).json()
+    assert d["totals"]["events"] == 2 and {r["key"] for r in d["by_source"]} == {"ad"}
+    assert sum(p["n"] for p in d["timeline"]) == 2
+    d2 = get(client, t, source=["ad", "aws"]).json()
+    assert d2["totals"]["events"] == 3

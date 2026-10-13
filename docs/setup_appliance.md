@@ -5,7 +5,8 @@ x86-64 or ARM). Devices on the LAN send syslog to it; people open `https://<vm-a
 
 ## 1. Requirements
 
-- 2 CPU, 4 GB RAM and 20 GB disk is plenty for the demo.
+- The assignment's minimum appliance: **Ubuntu 22.04+, 4 vCPU, 8 GB RAM, 40 GB disk**, with ports 80/443/514 open.
+  (The stack itself idles at well under 1 GB RAM, so a smaller VM works for a quick try.)
 - Docker Engine with the Compose plugin, git, make, python3 (for the demo scripts).
 
 On Ubuntu:
