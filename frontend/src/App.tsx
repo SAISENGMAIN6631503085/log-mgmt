@@ -3,17 +3,19 @@ import { Alert, api, clearSession, loadSession, User } from "./api";
 import { Icon, IconName } from "./components/Icon";
 import { TenantSwitcher, ThemeSwitch, UserMenu } from "./components/TopBar";
 import { AddLogs } from "./pages/AddLogs";
+import { ApiKeys } from "./pages/ApiKeys";
 import { Alerts } from "./pages/Alerts";
 import { Dashboard } from "./pages/Dashboard";
 import { Events } from "./pages/Events";
 import { Login } from "./pages/Login";
 import { applyTheme, loadTheme, Theme, useRoute } from "./util";
 
-const PAGES: { key: string; label: string; icon: IconName }[] = [
+const PAGES: { key: string; label: string; icon: IconName; adminOnly?: boolean }[] = [
   { key: "dashboard", label: "Overview", icon: "dashboard" },
   { key: "events", label: "Search", icon: "search" },
   { key: "alerts", label: "Alerts", icon: "bell" },
   { key: "add", label: "Add logs", icon: "upload" },
+  { key: "keys", label: "API keys", icon: "key", adminOnly: true },
 ];
 
 export default function App() {
@@ -89,7 +91,9 @@ export default function App() {
     setUser(null);
   }
 
-  const page = PAGES.some((p) => p.key === route.page) ? route.page : "dashboard";
+  // Viewers don't get admin pages in the menu (the API refuses them anyway).
+  const pages = PAGES.filter((p) => !p.adminOnly || user.role === "admin");
+  const page = pages.some((p) => p.key === route.page) ? route.page : "dashboard";
   const activeTenant = tenant ?? user.tenant;
   // Remount pages when the tenant changes so no data from the previous tenant lingers.
   const key = `${page}:${activeTenant}`;
@@ -105,7 +109,7 @@ export default function App() {
           </div>
         </div>
         <nav className="nav" aria-label="Main">
-          {PAGES.map((p) => (
+          {pages.map((p) => (
             <a key={p.key} href={`#/${p.key}`} className={page === p.key ? "active" : ""}
                aria-current={page === p.key ? "page" : undefined}>
               <Icon name={p.icon} />
@@ -135,6 +139,7 @@ export default function App() {
 
         {page === "dashboard" && <Dashboard key={key} tenant={tenant} tenantName={activeTenant} />}
         {page === "events" && <Events key={key} route={route} tenant={tenant} tenantName={activeTenant} />}
+        {page === "keys" && <ApiKeys key={key} tenant={tenant} tenantName={activeTenant} />}
         {page === "add" && <AddLogs key={key} user={user} tenant={tenant} tenantName={activeTenant} />}
         {page === "alerts" && <Alerts key={key} user={user} tenant={tenant} tenantName={activeTenant} onChange={setOpenAlerts} />}
       </div>

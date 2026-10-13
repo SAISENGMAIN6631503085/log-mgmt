@@ -9,7 +9,7 @@ from . import db
 from .alerting import worker_loop
 from .auth import check_jwt_secret
 from .retention import retention_loop
-from .routers import alerts, auth, events, ingest, stats
+from .routers import alerts, auth, events, ingest, keys, stats
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -35,6 +35,7 @@ app.include_router(ingest.router)
 app.include_router(events.router)
 app.include_router(alerts.router)
 app.include_router(stats.router)
+app.include_router(keys.router)
 # The assignment calls the JSON endpoint "POST /ingest"; serve it there too (same handler, same auth).
 app.add_api_route("/ingest", ingest.ingest_json, methods=["POST"], response_model=ingest.IngestResult,
                   tags=["ingest"], summary="Alias of POST /api/ingest")

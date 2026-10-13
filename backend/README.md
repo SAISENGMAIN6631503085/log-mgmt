@@ -90,6 +90,14 @@ Re-uploading a file or Vector retrying a batch is therefore safe.
 | `POST /api/ingest/upload` | login token, **admin** | the same upload for the website's **Add logs** page. The tenant is the one being viewed (`?tenant=`, same rule as every read endpoint); viewers get 403 because they're read-only. |
 | `POST /api/ingest/syslog` | `X-Ingest-Token` | internal, Vector only; blocked by Caddy from outside |
 
+API keys are managed by admins, per tenant (`?tenant=`, same rule as every read endpoint):
+
+| Endpoint | What it does |
+|----------|--------------|
+| `GET /api/keys` | List the tenant's keys: name, prefix (`lm_xxxxx…`), created, revoked. Never the key or its hash. |
+| `POST /api/keys` `{"name": "shop website"}` | Create a key. The full key is in this response **only**; it's stored as a SHA-256 hash. |
+| `POST /api/keys/{id}/revoke` | Revoke it: it stops working at once. The row stays (audit trail). Another tenant's key → 404. |
+
 Rules:
 - **The tenant always comes from the API key** (or, for syslog, from the sender IP). An event whose own
   `tenant` field names a *different* tenant is **rejected** with a clear message. It is not silently

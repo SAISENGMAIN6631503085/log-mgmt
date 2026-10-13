@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { api, IngestResult, SOURCES, User } from "../api";
+import { CodeBlock } from "../components/CodeBlock";
 import { Icon } from "../components/Icon";
 import { fmtNum, go, sourceLabel } from "../util";
 
@@ -20,26 +21,6 @@ function guessSource(name: string): string {
   if (/firewall|fw|syslog/.test(n) || n.endsWith(".log") || n.endsWith(".txt")) return "firewall";
   if (n.endsWith(".ndjson")) return "crowdstrike";
   return "api";
-}
-
-function CodeBlock({ label, code }: { label: string; code: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = () =>
-    navigator.clipboard?.writeText(code).then(() => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    });
-  return (
-    <div className="codeblock">
-      <div className="codeblock-head">
-        <span>{label}</span>
-        <button className="sm ghost" onClick={copy} aria-label={`Copy: ${label}`}>
-          <Icon name={copied ? "check" : "copy"} size={14} />{copied ? "Copied" : "Copy"}
-        </button>
-      </div>
-      <pre><code>{code}</code></pre>
-    </div>
-  );
 }
 
 function Upload({ user, tenant, tenantName }: { user: User; tenant: string | undefined; tenantName: string }) {
@@ -196,8 +177,10 @@ export function AddLogs({ user, tenant, tenantName }: { user: User; tenant: stri
             <div className="card-body">
               <CodeBlock label="Terminal" code={apiExample} />
               <p className="small muted">
-                The API key decides the tenant, so each tenant has its own key. Keys are created by an administrator
-                and are never shown in the website.
+                The API key decides the tenant, so each tenant has its own key.{" "}
+                {user.role === "admin"
+                  ? <>Create one on the <button className="link small" onClick={() => go("keys")}>API keys</button> page.</>
+                  : "Ask an administrator for one."}
               </p>
             </div>
           </section>

@@ -8,3 +8,7 @@ frontend/dist/
 .DS_Store
 *.tsbuildinfo
 FullStack_Developer_Intern_Assignment_EN.pdf
+
+# Personal notes, kept local (not pushed)
+docs/demo_walkthrough.md
+docs/understanding_the_app.md

@@ -22,6 +22,7 @@ const PATHS: Record<string, string> = {
   info: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z M12 11v5 M12 7.6v.2",
   up: "M12 19V5 M6 11l6-6 6 6",
   down: "M12 5v14 M6 13l6 6 6-6",
+  key: "M14.5 4.5a5 5 0 1 0-4 7.9L4 19v1.5h3V19h2v-2h2l1.6-1.6A5 5 0 0 0 14.5 4.5Z M15.8 8.2h.01",
   upload: "M12 15V4 M7.5 8.5 12 4l4.5 4.5 M4 15v5h16v-5",
   file: "M6 3h8l4 4v14H6z M14 3v4h4",
   copy: "M9 9h11v11H9z M5 15H4V4h11v1",

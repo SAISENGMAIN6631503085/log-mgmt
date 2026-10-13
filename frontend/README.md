@@ -7,6 +7,7 @@ Open https://localhost and sign in as `admin`, `viewerA` or `viewerB` (passwords
 | **Overview** | KPI tiles (events, failed logins, high severity, open alerts), events over time, by source, by severity, top source IPs and event types with inline bars. Tiles, bars and rows open a pre-filled search. |
 | **Search** | Every `/api/events` filter. Clicking a row opens a side panel with the fields grouped (overview, network, identity, cloud), the tags, and the original log (`raw`). Results load 100 at a time. |
 | **Alerts** | Open / acknowledged / all. "Events" opens the failed logins behind an alert; admins can acknowledge. |
+| **API keys** (admin) | Create a key per sending system (shown once, with a Copy button) and revoke it. Hidden from viewers. |
 | **Add logs** | Upload a log file (drag and drop; the log type is guessed from the file name and can be changed), with a plain-words result and a link to the new events. Plus copy-ready commands for the HTTP API and syslog. Upload is admin only; viewers see the commands. |
 
 The layout is a sidebar for the pages (with a live count of open alerts) plus a **top bar** for
