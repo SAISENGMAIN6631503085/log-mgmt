@@ -54,7 +54,10 @@ export function go(page: string, params: Record<string, string> = {}) {
 // --- theme tokens for SVG charts ---
 // Recharts writes colours as SVG attributes, where var(--x) doesn't resolve, so read the
 // computed token values and re-read them when the OS theme changes.
-const TOKENS = ["--chart", "--text", "--text-2", "--muted", "--grid", "--axis", "--surface"] as const;
+const TOKENS = [
+  "--chart", "--text", "--text-2", "--muted", "--grid", "--axis", "--surface",
+  "--sev-1", "--sev-2", "--sev-3", "--sev-4", "--sev-none", "--ink-1", "--ink-2", "--ink-3", "--ink-4", "--ink-5",
+] as const;
 export type Tokens = Record<(typeof TOKENS)[number], string>;
 
 function readTokens(): Tokens {

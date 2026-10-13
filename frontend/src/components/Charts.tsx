@@ -1,10 +1,10 @@
-import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TimelinePoint } from "../api";
 import { fmtNum, Tokens } from "../util";
 import { Icon } from "./Icon";
 
-// Charts are deliberately simple: plain bars in one colour, a value printed on each bar,
-// a one-sentence takeaway above (see Dashboard), hover for detail, and a "Show table" view.
+// Charts are deliberately simple: one-colour bars over time, donuts for shares (<= 5 slices, with a
+// labelled legend), a one-sentence takeaway above (see Dashboard), hover for detail, and a "Show table" view.
 
 const axisProps = (t: Tokens) => ({ stroke: t["--axis"], tick: { fill: t["--muted"], fontSize: 12 }, tickLine: false });
 
@@ -70,40 +70,64 @@ export function EventsOverTime({ data, bucketSeconds, t }: { data: TimelinePoint
 }
 
 // ---------------------------------------------------------------------------
-// Ranked horizontal bars with the value at the end (sources, severity levels)
+// Donut: part of a whole, for at most ~6 slices (severity levels, top sources + "Other").
+// The legend beside it names every slice with its count and share, so nothing relies on
+// colour alone, and the total sits in the middle.
 // ---------------------------------------------------------------------------
 
-type Row = { key: string; label: string; n: number };
+export type DonutSlice = { key: string; label: string; n: number; color: string; clickable?: boolean };
 
-function RowTip({ active, payload, total }: { active?: boolean; payload?: { payload: Row }[]; total: number }) {
+function SliceTip({ active, payload, total }: { active?: boolean; payload?: { payload: DonutSlice }[]; total: number }) {
   if (!active || !payload?.length) return null;
   const p = payload[0].payload;
   return (
     <div className="tip">
       <div className="t">{p.label}</div>
-      <div className="v">{fmtNum(p.n)} events · {total ? ((p.n / total) * 100).toFixed(1) : 0}% of all</div>
+      <div className="v">{fmtNum(p.n)} events · {total ? ((p.n / total) * 100).toFixed(1) : 0}%</div>
     </div>
   );
 }
 
-export function HBars({ rows, t, onClick }: { rows: Row[]; t: Tokens; onClick?: (key: string) => void }) {
-  const total = rows.reduce((s, r) => s + r.n, 0);
-  const labelWidth = Math.min(150, Math.max(70, ...rows.map((r) => r.label.length * 7.2)));
+export function Donut({ slices, t, centerLabel, onClick }: {
+  slices: DonutSlice[]; t: Tokens; centerLabel: string; onClick?: (key: string) => void;
+}) {
+  const total = slices.reduce((s, x) => s + x.n, 0);
+  const shown = slices.filter((x) => x.n > 0);
+  const pct = (n: number) => (total ? (n / total) * 100 : 0);
   return (
-    <ResponsiveContainer width="100%" height={Math.max(120, rows.length * 38 + 8)}>
-      <BarChart data={rows} layout="vertical" margin={{ top: 0, right: 56, bottom: 0, left: 0 }} barCategoryGap={9}>
-        <XAxis type="number" hide domain={[0, "dataMax"]} />
-        <YAxis type="category" dataKey="label" width={labelWidth} {...axisProps(t)}
-               tick={{ fill: t["--text-2"], fontSize: 13 }} axisLine={false} />
-        <Tooltip content={<RowTip total={total} />} cursor={{ fill: t["--grid"], fillOpacity: 0.6 }} />
-        <Bar dataKey="n" fill={t["--chart"]} radius={[0, 4, 4, 0]} maxBarSize={22} minPointSize={2} isAnimationActive={false}
-             background={{ fill: t["--grid"], fillOpacity: 0.4, radius: 4 } as object}
-             cursor={onClick ? "pointer" : undefined} onClick={onClick ? (d: Row) => onClick(d.key) : undefined}>
-          {/* The number at the end of each bar, so nobody has to read the bar length. */}
-          <LabelList dataKey="n" position="right" formatter={(v: number) => fmtNum(v)}
-                     style={{ fill: t["--text"], fontSize: 13, fontWeight: 600 }} />
-        </Bar>
-      </BarChart>
-    </ResponsiveContainer>
+    <div className="donut">
+      <div className="donut-chart">
+        <ResponsiveContainer width="100%" height={200}>
+          <PieChart>
+            <Tooltip content={<SliceTip total={total} />} />
+            <Pie data={shown} dataKey="n" nameKey="label" innerRadius="68%" outerRadius="96%"
+                 startAngle={90} endAngle={-270} isAnimationActive={false}
+                 // 2px surface-coloured edges = the gap between slices
+                 stroke={t["--surface"]} strokeWidth={2}
+                 cursor={onClick ? "pointer" : undefined}
+                 onClick={onClick ? (d: DonutSlice) => d.clickable !== false && onClick(d.key) : undefined}>
+              {shown.map((x) => <Cell key={x.key} fill={x.color} />)}
+            </Pie>
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="donut-center" aria-hidden="true">
+          <strong>{fmtNum(total)}</strong>
+          <span>{centerLabel}</span>
+        </div>
+      </div>
+      <ul className="donut-legend">
+        {slices.map((x) => (
+          <li key={x.key}>
+            <button type="button" className="legend-row" disabled={!onClick || x.n === 0 || x.clickable === false}
+                    onClick={() => onClick?.(x.key)} title={onClick ? `See ${x.label} events` : undefined}>
+              <span className="swatch" style={{ background: x.color }} />
+              <span className="legend-label">{x.label}</span>
+              <span className="legend-n">{fmtNum(x.n)}</span>
+              <span className="legend-pct">{pct(x.n) < 1 && x.n > 0 ? "<1" : Math.round(pct(x.n))}%</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

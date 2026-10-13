@@ -3,7 +3,7 @@ import { api, SOURCES, Stats } from "../api";
 import { Empty } from "../components/Badge";
 import { ChartCard } from "../components/ChartCard";
 import { Country } from "../components/Country";
-import { Delta, EventsOverTime, HBars } from "../components/Charts";
+import { Delta, Donut, DonutSlice, EventsOverTime } from "../components/Charts";
 import { Icon, IconName } from "../components/Icon";
 import { Segmented } from "../components/Segmented";
 import { fmtNum, go, RangeKey, RANGES, rangeParams, sourceLabel, useTokens } from "../util";
@@ -61,13 +61,20 @@ function RankTable({ title, subtitle, head, rows, extra, onRow, mono, render, em
   );
 }
 
+// Colours: red only where it means something. Critical/high/medium are one red ramp (strongest =
+// most serious, validated as an ordered ramp); routine "low" is neutral grey, like the rest of the UI.
 const SEVERITY_ROWS = [
-  { key: "critical", label: "Critical (9–10)", min: "9" },
-  { key: "high", label: "High (7–8)", min: "7" },
-  { key: "medium", label: "Medium (4–6)", min: "4" },
-  { key: "low", label: "Low (0–3)", min: "" },
-  { key: "unknown", label: "Not rated", min: "" },
-];
+  { key: "critical", label: "Critical (9–10)", min: "9", color: "--sev-1" },
+  { key: "high", label: "High (7–8)", min: "7", color: "--sev-2" },
+  { key: "medium", label: "Medium (4–6)", min: "4", color: "--sev-3" },
+  { key: "low", label: "Low (0–3)", min: "", color: "--ink-5" },
+  { key: "unknown", label: "Not rated", min: "", color: "--sev-none" },
+] as const;
+
+// Sources: the biggest four keep their own slice, the rest become "Other", so the donut never
+// has more than 5 slices. Shades of ink by share (darkest = biggest); the legend names each one.
+const INK = ["--ink-1", "--ink-2", "--ink-3", "--ink-4", "--ink-5"] as const;
+const OTHER = "__other";
 
 const pct = (part: number, whole: number) => (whole ? Math.round((part / whole) * 100) : 0);
 
@@ -105,9 +112,18 @@ export function Dashboard({ tenant, tenantName }: { tenant: string | undefined; 
     const sevCount = (k: string) => stats.by_severity.find((r) => r.key === k)?.n ?? 0;
     const serious = sevCount("critical") + sevCount("high");
     const sources = stats.by_source.map((r) => ({ key: r.key, label: sourceLabel(r.key), n: r.n }));
+    const top = sources.length > 5 ? sources.slice(0, 4) : sources;
+    const rest = sources.slice(top.length).reduce((sum, r) => sum + r.n, 0);
+    const sourceSlices: DonutSlice[] = [
+      ...top.map((r, i) => ({ ...r, color: t[INK[i]] })),
+      ...(rest > 0 ? [{ key: OTHER, label: `Other (${sources.length - top.length} sources)`, n: rest, color: t["--ink-5"], clickable: false }] : []),
+    ];
     const severities = SEVERITY_ROWS
       .filter((r) => r.key !== "unknown" || sevCount("unknown") > 0)
       .map((r) => ({ key: r.key, label: r.label, n: sevCount(r.key) }));
+    const severitySlices: DonutSlice[] = SEVERITY_ROWS
+      .filter((r) => r.key !== "unknown" || sevCount("unknown") > 0)
+      .map((r) => ({ key: r.key, label: r.label, n: sevCount(r.key), color: t[r.color], clickable: !!r.min }));
 
     body = (
       <>
@@ -141,16 +157,16 @@ export function Dashboard({ tenant, tenantName }: { tenant: string | undefined; 
         </ChartCard>
 
         <div className="grid-2">
-          <ChartCard title="Where events come from" subtitle="Click a bar to see that source's events"
+          <ChartCard title="Where events come from" subtitle="Share of all events. Click a slice or a row to see that source's events"
                      rows={sources} empty={sources.length === 0}
                      columns={[{ key: "label", label: "Source" }, { key: "n", label: "Events", num: true }]}>
             {topSource && (
               <Insight><strong>{sourceLabel(topSource.key)}</strong> sends the most: {fmtNum(topSource.n)} of {fmtNum(total)} events ({pct(topSource.n, total)}%).</Insight>
             )}
-            <HBars rows={sources} t={t} onClick={(source) => search({ source })} />
+            <Donut slices={sourceSlices} t={t} centerLabel="events" onClick={(source) => search({ source })} />
           </ChartCard>
 
-          <ChartCard title="How serious are they?" subtitle="Severity from 0 (routine) to 10 (act now). Click a bar to see those events."
+          <ChartCard title="How serious are they?" subtitle="Severity from 0 (routine) to 10 (act now). Click a slice or a row to see those events."
                      rows={severities} empty={total === 0}
                      columns={[{ key: "label", label: "Severity" }, { key: "n", label: "Events", num: true }]}>
             <Insight>
@@ -158,7 +174,7 @@ export function Dashboard({ tenant, tenantName }: { tenant: string | undefined; 
                 ? <><strong>{fmtNum(serious)}</strong> events ({pct(serious, total)}%) are high or critical and worth a look.</>
                 : <>No high or critical events in the {rangeLong}.</>}
             </Insight>
-            <HBars rows={severities} t={t} onClick={(key) => {
+            <Donut slices={severitySlices} t={t} centerLabel="events" onClick={(key) => {
               const min = SEVERITY_ROWS.find((r) => r.key === key)?.min;
               if (min) search({ severity_min: min });
             }} />
