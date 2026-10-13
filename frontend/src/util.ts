@@ -56,7 +56,7 @@ export function go(page: string, params: Record<string, string> = {}) {
 // computed token values and re-read them when the OS theme changes.
 const TOKENS = [
   "--chart", "--text", "--text-2", "--muted", "--grid", "--axis", "--surface",
-  "--sev-1", "--sev-2", "--sev-3", "--sev-4", "--sev-none", "--ink-1", "--ink-2", "--ink-3", "--ink-4", "--ink-5",
+  "--sev-1", "--sev-2", "--sev-3", "--sev-4", "--sev-none", "--ink-1", "--ink-2", "--ink-3", "--ink-4", "--ink-5", "--neutral",
 ] as const;
 export type Tokens = Record<(typeof TOKENS)[number], string>;
 

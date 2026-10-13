@@ -49,7 +49,7 @@ function TimeTip({ active, payload, fmt }: { active?: boolean; payload?: { paylo
       <div className="v">{fmtNum(p.n)} events</div>
       {p.n > 0 && (
         <div className="t" style={{ marginTop: 2 }}>
-          {fmtNum(serious)} serious · {fmtNum(p.auth_failures)} failed sign-ins
+          {fmtNum(serious)} serious, {fmtNum(p.auth_failures)} failed sign-ins
         </div>
       )}
     </div>

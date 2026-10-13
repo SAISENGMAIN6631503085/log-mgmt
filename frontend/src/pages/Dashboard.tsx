@@ -92,12 +92,12 @@ const SEVERITY_ROWS = [
   { key: "critical", label: "Critical (9–10)", min: "9", color: "--sev-1" },
   { key: "high", label: "High (7–8)", min: "7", color: "--sev-2" },
   { key: "medium", label: "Medium (4–6)", min: "4", color: "--sev-3" },
-  { key: "low", label: "Low (0–3)", min: "", color: "--ink-5" },
+  { key: "low", label: "Low (0–3)", min: "", color: "--neutral" },
   { key: "unknown", label: "Not rated", min: "", color: "--sev-none" },
 ] as const;
 
-// Sources: the biggest four keep their own slice, the rest become "Other", so the donut never
-// has more than 5 slices. Shades of ink by share (darkest = biggest); the legend names each one.
+// Sources: the biggest four keep their own slice, the rest become "Other" (neutral grey), so the
+// donut never has more than 5 slices. Shades of teal by share (strongest = biggest); the legend names each one.
 const INK = ["--ink-1", "--ink-2", "--ink-3", "--ink-4", "--ink-5"] as const;
 const OTHER = "__other";
 
@@ -141,7 +141,7 @@ export function Dashboard({ tenant, tenantName }: { tenant: string | undefined; 
     const rest = sources.slice(top.length).reduce((sum, r) => sum + r.n, 0);
     const sourceSlices: DonutSlice[] = [
       ...top.map((r, i) => ({ ...r, color: t[INK[i]] })),
-      ...(rest > 0 ? [{ key: OTHER, label: `Other (${sources.length - top.length} sources)`, n: rest, color: t["--ink-5"], clickable: false }] : []),
+      ...(rest > 0 ? [{ key: OTHER, label: `Other (${sources.length - top.length} sources)`, n: rest, color: t["--neutral"], clickable: false }] : []),
     ];
     const severities = SEVERITY_ROWS
       .filter((r) => r.key !== "unknown" || sevCount("unknown") > 0)

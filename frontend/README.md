@@ -64,11 +64,16 @@ Below 900 px the sidebar becomes a row of tabs above the top bar.
   - alerts are cards rather than a wide table.
 - **Icons** are a small inline SVG set (`components/Icon.tsx`); no icon library.
 - **Loading and empty states**: skeleton placeholders while loading, and a short explanation when there is nothing to show.
-- **Warm minimal theme**:
-  - light mode is a cream page, white cards, ink text and black buttons; dark mode is warm charcoal with cream text;
-  - bars are charcoal (light gray in dark mode);
-  - **colour is reserved for warnings**: red for alerts, critical and failed sign-ins, amber for high severity.
-    Low and medium are neutral grey, so the red things stand out.
+- **"Graphite & Signal" theme** (a log tool is used like an instrument panel, so it should feel precise):
+  - a **dark graphite sidebar** in both modes frames the app, with a teal marker on the active page;
+  - light mode is a cool grey page with white surfaces and graphite text; dark mode is deep graphite;
+  - **signal teal** is the one accent: buttons, links, toggles, focus rings, chart bars and the sources donut;
+  - **red is reserved for warnings**: alerts, critical/high/medium severity and failed sign-ins. Routine
+    things are neutral grey, so red always means "look at this";
+  - type is **IBM Plex Sans** (text) and **IBM Plex Mono** (IPs, codes, log lines), bundled with
+    `@fontsource` so the appliance works offline (Latin subset, 3 + 2 weights);
+  - the donut ramps (teal for sources, red for severity) were re-checked with the palette validator
+    against the new light and dark surfaces;
   - All colours are CSS tokens in `src/styles.css`. Charts read the computed tokens (SVG attributes
     can't use `var()`) and update when the theme changes.
 - **Times** are stored in UTC and shown in the viewer's local time zone.

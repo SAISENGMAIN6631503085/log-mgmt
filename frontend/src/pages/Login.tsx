@@ -106,7 +106,7 @@ export function Login({ onLogin }: { onLogin: (user: User) => void }) {
           </button>
 
           <p className="login-foot">
-            <Icon name="lock" size={13} />Encrypted connection · each organization sees only its own data
+            <Icon name="lock" size={13} />Encrypted connection. Each organization sees only its own data.
           </p>
           <p className="login-demo">Demo accounts: <code>admin</code>, <code>viewerA</code>, <code>viewerB</code></p>
         </form>
