@@ -9,20 +9,28 @@ import { Icon } from "./Icon";
 const axisProps = (t: Tokens) => ({ stroke: t["--axis"], tick: { fill: t["--muted"], fontSize: 12 }, tickLine: false });
 
 const PERIOD_WORDS: Record<string, string> = { "1h": "hour", "24h": "24 hours", "7d": "7 days" };
+const PERIOD_SHORT: Record<string, string> = { "1h": "previous hour", "24h": "previous 24 h", "7d": "previous 7 days" };
 
-/** "▲ 12% more than the 24 hours before". Neutral ink: more events isn't automatically good or bad. */
+/** "↑ 12% more vs. previous 24 h", or "↑ 72× more" when it grew a lot: a 7,132% rise reads better as 72×.
+ *  Neutral ink: more events isn't automatically good or bad. Exact numbers are in the tooltip. */
 export function Delta({ current, previous, period }: { current: number; previous: number; period: string }) {
-  const words = PERIOD_WORDS[period] ?? period;
+  const short = PERIOD_SHORT[period] ?? `previous ${period}`;
   if (previous === 0) {
     // No baseline to compare with: say so plainly instead of an infinite percentage.
-    return <span className="kpi-sub">Nothing in the {words} before</span>;
+    return <span className="kpi-sub">Nothing in the {PERIOD_WORDS[period] ?? period} before</span>;
   }
-  const pct = ((current - previous) / previous) * 100;
-  const rounded = Math.abs(pct) < 10 ? Math.abs(pct).toFixed(1) : Math.round(Math.abs(pct)).toString();
+  const title = `${fmtNum(current)} now, ${fmtNum(previous)} in the ${short}`;
+  if (current === previous) return <span className="delta" title={title}>Same as {short}</span>;
+  const ratio = current / previous;
+  const up = ratio > 1;
+  const amount = ratio >= 2
+    ? `${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)}× more`
+    : `${Math.max(1, Math.round(Math.abs(ratio - 1) * 100))}% ${up ? "more" : "fewer"}`;
   return (
-    <span className="delta" title={`${fmtNum(previous)} in the previous ${words}`}>
-      {pct === 0 ? "No change" : <><Icon name={pct > 0 ? "up" : "down"} size={13} />{rounded}% {pct > 0 ? "more" : "fewer"}</>}
-      <span className="muted">than the {words} before</span>
+    <span className="delta" title={title}>
+      <Icon name={up ? "up" : "down"} size={13} />
+      <span className="delta-amount">{amount}</span>{" "}
+      <span className="muted">vs. {short}</span>
     </span>
   );
 }

@@ -3,7 +3,7 @@ import { api, LogEvent, SOURCES } from "../api";
 import { Empty, SeverityBadge } from "../components/Badge";
 import { Country } from "../components/Country";
 import { Icon } from "../components/Icon";
-import { fmtTime, go, humanize, ipKind, RangeKey, RANGES, rangeParams, Route, SOURCE_LABELS } from "../util";
+import { countryName, fmtTime, go, humanize, ipKind, RangeKey, RANGES, rangeParams, Route, SOURCE_LABELS } from "../util";
 
 // Filters live in the URL hash (#/events?src_ip=...), so links from the dashboard and
 // alerts pages land on a ready-made search, and a search can be bookmarked or shared.
@@ -22,6 +22,24 @@ export const TAG_LABELS: Record<string, string> = {
   mail_forwarding_rule: "Email forwarding rule",
 };
 
+
+const SEVERITY_OPTIONS = [["4", "Medium and above"], ["7", "High and above"], ["9", "Critical only"]] as const;
+
+/** The words on an active-filter chip, e.g. "Country: Thailand" or "High and above". */
+function chipLabel(k: keyof Filters, v: string): string {
+  switch (k) {
+    case "source": return `Source: ${SOURCE_LABELS[v] ?? v}`;
+    case "severity_min": return SEVERITY_OPTIONS.find(([s]) => s === v)?.[1] ?? `Severity ${v}+`;
+    case "tag": return TAG_LABELS[v] ?? v;
+    case "src_ip": return `IP: ${v}`;
+    case "country": return `Country: ${countryName(v)}`;
+    case "user": return `User: ${v}`;
+    case "host": return `Computer: ${v}`;
+    case "event_type": return `Event: ${humanize(v)}`;
+    case "q": return `Contains "${v}"`;
+    default: return v;
+  }
+}
 
 function filtersFrom(params: URLSearchParams): Filters {
   const f: Filters = {};
@@ -74,6 +92,19 @@ export function Events({ route, tenant, tenantName }: { route: Route; tenant: st
   }
 
   const set = (k: keyof Filters) => (e: { target: { value: string } }) => setDraft({ ...draft, [k]: e.target.value });
+  // Dropdowns search straight away; text boxes wait for Enter or the Search button.
+  const apply = (k: keyof Filters) => (e: { target: { value: string } }) => {
+    const next = { ...draft, [k]: e.target.value };
+    go("events", Object.fromEntries(Object.entries(next).filter(([, v]) => v)) as Record<string, string>);
+  };
+  const remove = (k: keyof Filters) => {
+    const { [k]: _, ...rest } = applied;
+    go("events", rest as Record<string, string>);
+  };
+  const chips = (Object.entries(applied) as [keyof Filters, string][])
+    .filter(([k]) => k !== "range")
+    .map(([k, v]) => [k, chipLabel(k, v)] as const);
+  const [moreOpen, setMoreOpen] = useState(() => ["src_ip", "user", "host", "country", "event_type"].some((k) => k in applied));
   const activeCount = Object.keys(applied).filter((k) => k !== "range").length;
   const rangeLong = RANGES.find((r) => r.key === (applied.range ?? "24h"))!.long;
 
@@ -86,60 +117,84 @@ export function Events({ route, tenant, tenantName }: { route: Route; tenant: st
         </div>
       </header>
       <div className="page-body">
-        <form className="card filterbar" onSubmit={submit}>
-          <label className="field">
-            When
-            <select value={draft.range ?? "24h"} onChange={set("range")}>
+        <form className="card search-panel" onSubmit={submit}>
+          {/* Search first: free text + time range + one button. */}
+          <div className="search-bar">
+            <label className="search-input">
+              <Icon name="search" size={18} />
+              <input value={draft.q ?? ""} onChange={set("q")} aria-label="Search text"
+                     placeholder="Search any word, e.g. mimikatz, administrator or a hostname" />
+            </label>
+            <select value={draft.range ?? "24h"} onChange={apply("range")} aria-label="Time range">
               {RANGES.map((r) => <option key={r.key} value={r.key}>{r.long[0].toUpperCase() + r.long.slice(1)}</option>)}
             </select>
-          </label>
-          <label className="field">
-            Source
-            <select value={draft.source ?? ""} onChange={set("source")}>
-              <option value="">All sources</option>
-              {SOURCES.map((s) => <option key={s} value={s}>{SOURCE_LABELS[s]}</option>)}
-            </select>
-          </label>
-          <label className="field">
-            How serious
-            <select value={draft.severity_min ?? ""} onChange={set("severity_min")}>
-              <option value="">Any</option>
-              <option value="4">Medium and above (4+)</option>
-              <option value="7">High and above (7+)</option>
-              <option value="9">Critical only (9+)</option>
-            </select>
-          </label>
-          <label className="field">
-            Kind of event
-            <select value={draft.tag ?? ""} onChange={set("tag")}>
-              <option value="">Any</option>
-              {Object.entries(TAG_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
-          </label>
-          <label className="field">
-            IP address or range
-            <input value={draft.src_ip ?? ""} onChange={set("src_ip")} placeholder="203.0.113.50 or 10.0.0.0/8" />
-          </label>
-          <label className="field">
-            User
-            <input value={draft.user ?? ""} onChange={set("user")} placeholder="administrator" />
-          </label>
-          <label className="field">
-            Country
-            <input value={draft.country ?? ""} onChange={set("country")} placeholder="2 letters, e.g. TH" maxLength={2} />
-          </label>
-          <label className="field">
-            Event name
-            <input value={draft.event_type ?? ""} onChange={set("event_type")} placeholder="e.g. logon_failure" />
-          </label>
-          <label className="field">
-            Contains text
-            <input value={draft.q ?? ""} onChange={set("q")} placeholder="Any word, e.g. mimikatz" />
-          </label>
-          <div className="actions">
-            <button className="primary" type="submit"><Icon name="search" size={16} />Search</button>
-            <button type="button" className="ghost" onClick={() => go("events")}>Reset</button>
+            <button className="primary" type="submit">Search</button>
           </div>
+
+          {/* The three filters people use most apply as soon as they're picked. */}
+          <div className="filter-row">
+            <label className="inline-select">
+              <span>Source</span>
+              <select value={draft.source ?? ""} onChange={apply("source")}>
+                <option value="">All</option>
+                {SOURCES.map((s) => <option key={s} value={s}>{SOURCE_LABELS[s]}</option>)}
+              </select>
+            </label>
+            <label className="inline-select">
+              <span>How serious</span>
+              <select value={draft.severity_min ?? ""} onChange={apply("severity_min")}>
+                <option value="">Any</option>
+                {SEVERITY_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </label>
+            <label className="inline-select">
+              <span>Kind</span>
+              <select value={draft.tag ?? ""} onChange={apply("tag")}>
+                <option value="">Any</option>
+                {Object.entries(TAG_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </label>
+            <button type="button" className="ghost more-toggle" aria-expanded={moreOpen} onClick={() => setMoreOpen((o) => !o)}>
+              <Icon name="filter" size={15} />{moreOpen ? "Fewer filters" : "More filters"}
+            </button>
+          </div>
+
+          {moreOpen && (
+            <div className="more-filters">
+              <label className="field">
+                IP address or range
+                <input value={draft.src_ip ?? ""} onChange={set("src_ip")} placeholder="203.0.113.50 or 10.0.0.0/8" />
+              </label>
+              <label className="field">
+                User
+                <input value={draft.user ?? ""} onChange={set("user")} placeholder="administrator" />
+              </label>
+              <label className="field">
+                Computer
+                <input value={draft.host ?? ""} onChange={set("host")} placeholder="e.g. DC01" />
+              </label>
+              <label className="field">
+                Country
+                <input value={draft.country ?? ""} onChange={set("country")} placeholder="2 letters, e.g. TH" maxLength={2} />
+              </label>
+              <label className="field">
+                Event name
+                <input value={draft.event_type ?? ""} onChange={set("event_type")} placeholder="e.g. logon_failure" />
+              </label>
+            </div>
+          )}
+
+          {/* What's applied right now, each removable on its own. */}
+          {chips.length > 0 && (
+            <div className="active-filters" aria-label="Active filters">
+              {chips.map(([k, label]) => (
+                <button key={k} type="button" className="filter-chip" onClick={() => remove(k)} aria-label={`Remove filter: ${label}`}>
+                  {label}<Icon name="x" size={13} />
+                </button>
+              ))}
+              <button type="button" className="link clear-all" onClick={() => go("events", applied.range ? { range: applied.range } : {})}>Clear all</button>
+            </div>
+          )}
         </form>
 
         {error && <div className="error-banner" role="alert"><Icon name="alert" size={16} />{error}</div>}
@@ -149,7 +204,7 @@ export function Events({ route, tenant, tenantName }: { route: Route; tenant: st
             <div>
               <h2>{cursor ? `Showing the newest ${events.length} events` : `${events.length} event${events.length === 1 ? "" : "s"}`}</h2>
               <div className="sub" style={{ color: "var(--text-2)", fontSize: 12.5 }}>
-                {rangeLong[0].toUpperCase() + rangeLong.slice(1)}{activeCount ? ` · ${activeCount} filter${activeCount > 1 ? "s" : ""} on` : ""} · times shown in your time zone
+                {rangeLong[0].toUpperCase() + rangeLong.slice(1)}{activeCount ? `, ${activeCount} filter${activeCount > 1 ? "s" : ""} on` : ""}. Times are in your time zone.
               </div>
             </div>
           </div>
@@ -172,7 +227,10 @@ export function Events({ route, tenant, tenantName }: { route: Route; tenant: st
                       <td className="event-cell">
                         <span className="event-name" title={e.event_type ?? undefined}>{e.event_type ? humanize(e.event_type) : "(no event name)"}</span>
                         {/* Second line: where it came from, plus any flags in plain words */}
-                        <span>{[SOURCE_LABELS[e.source] ?? e.source, ...e._tags.map((t) => TAG_LABELS[t] ?? t)].join(" · ")}</span>
+                        <span className="event-meta">
+                          {SOURCE_LABELS[e.source] ?? e.source}
+                          {e._tags.map((t) => <span key={t} className="mini-tag" title={t}>{TAG_LABELS[t] ?? t}</span>)}
+                        </span>
                       </td>
                       <td className="ip-col">
                         {e.src_ip && (
@@ -236,10 +294,12 @@ function EventDrawer({ event, onClose }: { event: LogEvent; onClose: () => void 
       <aside className="drawer" role="dialog" aria-label={`Event ${event.id}`}>
         <div className="drawer-head">
           <div>
-            <div className="title">{event.event_type ?? "Event"}</div>
+            <div className="title">{event.event_type ? humanize(event.event_type) : "Event"}</div>
+            {event.event_type && <code className="title-code">{event.event_type}</code>}
             <div className="meta">
               <SeverityBadge severity={event.severity} />
-              <span>{SOURCE_LABELS[event.source] ?? event.source}</span>·<span>{fmtTime(event["@timestamp"])}</span>·<span className="mono">#{event.id}</span>
+              <span>from {SOURCE_LABELS[event.source] ?? event.source}</span>
+              <span>{fmtTime(event["@timestamp"])}</span>
             </div>
           </div>
           <button className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="x" /></button>
@@ -279,7 +339,7 @@ function EventDrawer({ event, onClose }: { event: LogEvent; onClose: () => void 
               </button>
             </p>
           )}
-          <div className="section-title">Original log, exactly as received</div>
+          <div className="section-title">Original log, exactly as received <span className="mono id">Event #{event.id}</span></div>
           <pre className="raw">{JSON.stringify(event.raw, null, 2)}</pre>
         </div>
       </aside>

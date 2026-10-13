@@ -14,7 +14,7 @@ function Kpi({ icon, label, value, footer, onClick, attention }: {
 }) {
   return (
     <button className={`kpi ${attention ? "attention" : ""}`} onClick={onClick}>
-      <span className="kpi-top">{label}<span className="kpi-icon"><Icon name={icon} size={16} /></span></span>
+      <span className="kpi-top"><span className="kpi-icon"><Icon name={icon} size={15} /></span>{label}</span>
       <span className="kpi-value">{fmtNum(value)}</span>
       {footer}
     </button>
