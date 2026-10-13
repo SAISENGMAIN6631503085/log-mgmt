@@ -28,6 +28,11 @@ window on any day. The sample files themselves are dated 2026-10-12.
 | `simulator.py` | Continuous realistic traffic for every tenant key, plus a staged attack every `--attack-every` seconds, taking turns so every alert rule fires live: a brute force (6 failed AD logons from one IP), a port scan (25 blocked firewall connections from one IP, over syslog) and malware (a high-severity CrowdStrike detection). |
 
 `make demo` runs the first two for both demo tenants; `make simulate` runs the simulator.
+
+The sample files use documentation addresses (`203.0.113.x`, `198.51.100.x`, `192.0.2.x`), which
+have no country. The simulator uses blocks of real public addresses instead (large ISP and cloud
+networks, each checked against the DB-IP database), so the dashboard shows realistic countries. It
+only writes them into generated log text and never contacts them.
 To keep it running in the background (as the live demo does), set `COMPOSE_PROFILES=demo` in `.env`
 and `make up`: the `simulator` service sends a gentler stream (`--rate 0.3 --daily-cycle`, busier by
 day than at night) with an attack every 15 minutes. `simulator.py --keys` also accepts the

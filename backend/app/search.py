@@ -20,6 +20,7 @@ class SearchFilters:
     dst_ip: str | None = None
     user: str | None = None
     host: str | None = None
+    country: str | None = None  # two-letter code of src_ip's country, e.g. "TH"
     event_type: str | None = None
     tag: str | None = None
     q: str | None = None        # free text, case-insensitive
@@ -80,6 +81,8 @@ def build_search(tenant: str, f: SearchFilters) -> tuple[str, list]:
         where.append(f"username ILIKE {p(_like_escape(f.user))}")  # exact but case-insensitive
     if f.host:
         where.append(f"host ILIKE {p(_like_escape(f.host))}")
+    if f.country:
+        where.append(f"src_country = {p(f.country.upper())}")
     if f.event_type:
         where.append(f"event_type = {p(f.event_type)}")
     if f.tag:

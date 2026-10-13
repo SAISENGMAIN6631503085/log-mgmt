@@ -49,6 +49,8 @@ class Event(BaseModel):
     cloud_account_id: str | None = None
     cloud_region: str | None = None
     cloud_service: str | None = None
+    # Enrichment, filled at ingest from src_ip (app/geoip.py), never by a normalizer.
+    src_country: str | None = Field(default=None, min_length=2, max_length=2)
     raw: dict[str, Any]
     # Pydantic treats leading-underscore names as private, so the field is `tags` with alias `_tags`.
     tags: list[str] = Field(default_factory=list, alias="_tags")

@@ -63,6 +63,18 @@ Syslog (`syslog.py`):
   is moved to the previous year, which handles a Dec 31 line arriving on Jan 1.
 - The tenant comes from the sender IP via `SYSLOG_TENANT_MAP`, else `DEFAULT_TENANT`.
 
+## Enrichment: country of the source IP (`app/geoip.py`)
+After normalizing, ingest looks up the country of `src_ip` and stores it as `src_country`
+(two-letter code, migration 005). It's then a search filter (`?country=TH`), a dashboard table
+(top countries) and part of each IP-based alert.
+
+- Data: DB-IP "IP to Country Lite", free under CC BY 4.0. The website links to db-ip.com, as the licence requires.
+- `fetch_geoip.py` downloads it while the image is built (this month's file, or last month's).
+  Lookups read the local file, so no log data leaves the server. Refresh it with
+  `docker compose build --no-cache backend`.
+- Private and reserved addresses (10.x, 192.168.x, and the documentation ranges used in the
+  assignment samples) have no country. Without the file, enrichment is off and nothing else changes.
+
 ## Ingestion endpoints
 All three normalize events, store the valid ones, and report the rest:
 `{"accepted": n, "duplicates": d, "rejected_count": m, "rejected": [{"index": i, "error": "..."}]}`.

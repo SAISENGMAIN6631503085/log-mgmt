@@ -110,6 +110,7 @@ export type LogEvent = {
   cloud_account_id: string | null;
   cloud_region: string | null;
   cloud_service: string | null;
+  src_country: string | null; // added at ingest from src_ip; null for private/unknown IPs
   raw: unknown;
   _tags: string[];
 };
@@ -125,7 +126,7 @@ export type Alert = {
   event_count: number;
   window_start: string;
   window_end: string;
-  details: { users?: string[]; sources?: string[]; hosts?: string[]; event_types?: string[]; threshold?: number };
+  details: { users?: string[]; sources?: string[]; hosts?: string[]; event_types?: string[]; threshold?: number; country?: string | null };
   status: "open" | "acknowledged";
   created_at: string;
   webhook_sent_at: string | null;
@@ -155,8 +156,9 @@ export type Stats = {
   source_timeline: { source: string; t: string; n: number }[];
   by_source: { key: string; n: number }[];
   by_severity: { key: string; n: number }[];
-  top_src_ips: { key: string; n: number; auth_failures: number }[];
+  top_src_ips: { key: string; n: number; auth_failures: number; country: string | null }[];
   top_users: { key: string; n: number; auth_failures: number }[];
+  top_countries: { key: string; n: number; auth_failures: number }[];
   top_event_types: { key: string; n: number }[];
 };
 

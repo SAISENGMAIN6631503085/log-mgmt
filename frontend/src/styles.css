@@ -499,3 +499,16 @@ tr.revoked td { color: var(--muted); }
 .switch input:focus-visible + .switch-track { box-shadow: 0 0 0 3px var(--accent-wash); }
 .switch input:disabled + .switch-track { opacity: 0.6; }
 @media (prefers-reduced-motion: reduce) { .switch-track, .switch-knob { transition: none; } }
+
+/* Countries, demo label, data credit */
+.flag { font-size: 15px; line-height: 1; }
+.country { display: inline-flex; align-items: center; gap: 6px; }
+.ip-cell { display: inline-flex; align-items: center; gap: 6px; }
+.alert-what .flag { margin-left: 2px; }
+.demo-pill { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; margin-right: auto;
+  border-radius: 13px; border: 1px dashed var(--border-strong); color: var(--text-2); font-size: 12px; font-weight: 500; cursor: help; }
+.sidebar-credit { margin-top: auto; padding: 12px 8px 4px; font-size: 11px; color: var(--muted); text-decoration: none; }
+.sidebar-credit:hover { color: var(--text-2); text-decoration: underline; }
+@media (max-width: 900px) { .sidebar-credit { order: 4; width: 100%; margin: 0; padding: 0 4px; text-align: right; } }
+.demo-pill { white-space: nowrap; flex: none; }
+@media (max-width: 600px) { .demo-pill { padding: 0 8px; } .demo-pill svg { display: none; } }

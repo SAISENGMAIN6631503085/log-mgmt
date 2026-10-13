@@ -91,6 +91,16 @@ All images run on linux/amd64 and linux/arm64.
 | 3 | File upload (AWS, M365, AD CSV, CrowdStrike NDJSON) | `POST /api/ingest/file` with `X-API-Key`, or the **Add logs** page in the website |
 | 4 | Simulator | `samples/simulator.py` (continuous traffic + attacks) |
 
+## Extras beyond the assignment
+- **Country enrichment (GeoIP):** each event's source IP gets a country at ingest (DB-IP Lite, CC BY 4.0),
+  shown as flags in Search and Alerts, a "Top countries" table and a country filter.
+- **Three detection rules** (brute force, firewall scan, malware), tunable per tenant on the **Rules** page.
+- **Add logs** page (file upload in the browser) and an **API keys** page (create, show once, revoke).
+- **Live demo traffic:** with `COMPOSE_PROFILES=demo`, a simulator keeps the demo fresh. Its
+  addresses are real public ranges, so countries show up, but every log is generated, and the
+  website shows a **Demo data** label.
+- **CI/CD** with GitHub Actions, and a hardened SaaS server.
+
 ## Tests
 `make test` runs 251 pytest tests. They cover every normalizer, ingest, duplicate handling,
 login and **tenant isolation**, search, the alert rule and webhook, retention, and stats. Database tests

@@ -11,7 +11,7 @@ _COLUMNS = [
     "ts", "tenant", "source", "vendor", "product", "event_type", "event_subtype", "severity",
     "action", "src_ip", "src_port", "dst_ip", "dst_port", "protocol", "username", "host",
     "process", "url", "http_method", "status_code", "rule_name", "rule_id",
-    "cloud_account_id", "cloud_region", "cloud_service", "raw", "_tags",
+    "cloud_account_id", "cloud_region", "cloud_service", "raw", "_tags", "src_country",
 ]
 
 
@@ -36,7 +36,7 @@ def _row(e: Event) -> tuple:
         e.ts, e.tenant, e.source, e.vendor, e.product, e.event_type, e.event_subtype, e.severity,
         e.action, ip(e.src_ip), e.src_port, ip(e.dst_ip), e.dst_port, e.protocol, e.user, e.host,
         e.process, e.url, e.http_method, e.status_code, e.rule_name, e.rule_id,
-        e.cloud_account_id, e.cloud_region, e.cloud_service, e.raw, e.tags,
+        e.cloud_account_id, e.cloud_region, e.cloud_service, e.raw, e.tags, e.src_country,
     )
 
 

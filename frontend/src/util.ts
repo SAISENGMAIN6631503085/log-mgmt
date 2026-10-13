@@ -107,3 +107,22 @@ export const SOURCE_LABELS: Record<string, string> = {
   aws: "AWS", m365: "Microsoft 365", ad: "Active Directory",
 };
 export const sourceLabel = (s: string) => SOURCE_LABELS[s] ?? s;
+
+// --- countries (src_country, from the backend's DB-IP lookup) ---
+/** "TH" -> 🇹🇭: a flag emoji is two "regional indicator" letters. (Windows shows the letters instead.) */
+export function countryFlag(code: string): string {
+  return /^[A-Za-z]{2}$/.test(code)
+    ? String.fromCodePoint(...code.toUpperCase().split("").map((c) => 0x1f1e6 + c.charCodeAt(0) - 65))
+    : "";
+}
+
+let countryNames: Intl.DisplayNames | null = null;
+/** "TH" -> "Thailand", in English like the rest of the UI. */
+export function countryName(code: string): string {
+  try {
+    countryNames ??= new Intl.DisplayNames(["en"], { type: "region" });
+    return countryNames.of(code.toUpperCase()) ?? code;
+  } catch {
+    return code;
+  }
+}

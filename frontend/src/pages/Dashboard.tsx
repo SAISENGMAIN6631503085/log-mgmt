@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, SOURCES, Stats } from "../api";
 import { Empty } from "../components/Badge";
 import { ChartCard } from "../components/ChartCard";
+import { Country } from "../components/Country";
 import { Delta, EventsOverTime, HBars } from "../components/Charts";
 import { Icon, IconName } from "../components/Icon";
 import { Segmented } from "../components/Segmented";
@@ -26,22 +27,23 @@ function Insight({ children }: { children: React.ReactNode }) {
 }
 
 /** Ranked list with an inline magnitude bar, scaled to the largest row. */
-function RankTable({ title, subtitle, head, rows, extra, onRow, mono }: {
+function RankTable({ title, subtitle, head, rows, extra, onRow, mono, render, emptyText }: {
   title: string; subtitle: string; head: string; rows: { key: string; n: number; extra?: number }[];
-  extra?: string; onRow: (key: string) => void; mono?: boolean;
+  extra?: string; onRow: (key: string) => void; mono?: boolean; render?: (key: string) => React.ReactNode;
+  emptyText?: string;
 }) {
   const max = Math.max(1, ...rows.map((r) => r.n));
   return (
     <section className="card">
       <div className="card-head"><div><h2>{title}</h2><div className="sub">{subtitle}</div></div></div>
-      {rows.length === 0 ? <Empty icon={<Icon name="inbox" />} title="No data">Nothing in this time range.</Empty> : (
+      {rows.length === 0 ? <Empty icon={<Icon name="inbox" />} title="No data">{emptyText ?? "Nothing in this time range."}</Empty> : (
         <div className="card-body flush table-wrap">
           <table>
             <thead><tr><th>{head}</th>{extra && <th className="num">{extra}</th>}<th className="num">Events</th></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.key} className="clickable" onClick={() => onRow(r.key)} title="See these events">
-                  <td>{mono ? <code>{r.key}</code> : r.key}</td>
+                  <td>{render ? render(r.key) : mono ? <code>{r.key}</code> : r.key}</td>
                   {extra && <td className="num">{r.extra ? <span className="warn-num">{fmtNum(r.extra)}</span> : <span className="dim">0</span>}</td>}
                   <td className="num">
                     <div className="bar-cell">
@@ -168,10 +170,18 @@ export function Dashboard({ tenant, tenantName }: { tenant: string | undefined; 
           </ChartCard>
         </div>
 
-        <div className="grid-3">
+        <div className="grid-2">
           <RankTable title="Busiest IP addresses" subtitle="Click a row to see its events" head="IP address" mono extra="Failed"
                      rows={stats.top_src_ips.map((r) => ({ key: r.key, n: r.n, extra: r.auth_failures }))}
+                     render={(ip) => (
+                       <span className="ip-cell"><code>{ip}</code><Country code={stats.top_src_ips.find((r) => r.key === ip)?.country} compact /></span>
+                     )}
                      onRow={(ip) => search({ src_ip: ip })} />
+          <RankTable title="Top countries" subtitle="Where outside traffic comes from. Click a row to see its events" head="Country" extra="Failed"
+                     rows={stats.top_countries.map((r) => ({ key: r.key, n: r.n, extra: r.auth_failures }))}
+                     render={(code) => <Country code={code} />}
+                     emptyText="No public IP addresses in this time range (private and example addresses have no country)."
+                     onRow={(country) => search({ country })} />
           <RankTable title="Most active users" subtitle="Click a row to see their events" head="User" extra="Failed"
                      rows={stats.top_users.map((r) => ({ key: r.key, n: r.n, extra: r.auth_failures }))}
                      onRow={(user) => search({ user })} />

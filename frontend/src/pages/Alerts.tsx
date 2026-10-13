@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Alert, api, User } from "../api";
 import { Empty, SeverityBadge, StatusPill } from "../components/Badge";
+import { Country } from "../components/Country";
 import { Icon } from "../components/Icon";
 import { Segmented } from "../components/Segmented";
 import { fmtTime, go } from "../util";
@@ -17,7 +18,7 @@ function listUsers(users: string[]) {
 function AlertWhat({ a }: { a: Alert }) {
   const target = a.group_key ?? a.src_ip;
   if (a.rule_id === "firewall_scan") {
-    return <><strong>{a.event_count}</strong> blocked connections from <code>{target}</code>: possibly scanning for open ports</>;
+    return <><strong>{a.event_count}</strong> blocked connections from <code>{target}</code>{a.details.country ? <> <Country code={a.details.country} /></> : null}: possibly scanning for open ports</>;
   }
   if (a.rule_id === "malware_detected") {
     return (
@@ -29,7 +30,7 @@ function AlertWhat({ a }: { a: Alert }) {
   }
   return (
     <>
-      <strong>{a.event_count}</strong> failed sign-ins from <code>{target}</code>
+      <strong>{a.event_count}</strong> failed sign-ins from <code>{target}</code>{a.details.country ? <> <Country code={a.details.country} /></> : null}
       {a.details.users?.length ? <> for {listUsers(a.details.users)}</> : null}
     </>
   );

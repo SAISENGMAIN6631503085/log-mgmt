@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     retention_days: int = 7
     alert_webhook_url: str = ""
     alert_interval_seconds: int = 60
+    # IP -> country database, downloaded at image build time (see fetch_geoip.py)
+    geoip_db: str = "/app/geoip/dbip-country-lite.mmdb"
+    # "demo" means the simulator service runs, so the website labels the data as generated
+    compose_profiles: str = ""
+
+    @property
+    def demo_data(self) -> bool:
+        return "demo" in self.compose_profiles.split(",")
 
     @property
     def database_dsn(self) -> str:

@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 import asyncpg
 import httpx
 
-from . import db
+from . import db, geoip
 from .config import settings
 
 log = logging.getLogger("alerting")
@@ -132,6 +132,7 @@ async def _upsert_alert(conn: asyncpg.Connection, rule: Rule, b: dict) -> int | 
         "hosts": pick("host"),
         "event_types": pick("event_type"),
         "group_by": rule.group_by,
+        "country": geoip.country(b["group_key"]) if rule.group_by == "src_ip" else None,
         "threshold": b["threshold"],
         "window_minutes": int(rule.window.total_seconds() // 60),
     }

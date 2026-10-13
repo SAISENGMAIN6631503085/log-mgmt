@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from pydantic import BaseModel, ValidationError
 
-from .. import db
+from .. import db, geoip
 from ..api_keys import tenant_from_api_key
 from ..auth import require_admin, scoped_tenant
 from ..config import settings
@@ -75,6 +75,7 @@ async def _process(items: list[tuple[str, Any, str]]) -> IngestResult:
                 raise ValueError(f"event says tenant {payload['tenant']!r} but this API key belongs to "
                                  f"tenant {tenant!r}; use that tenant's key")
             ev = normalize(source, payload, tenant, now=now)
+            ev.src_country = geoip.country(ev.src_ip)  # enrichment: same for every source
             if check_ts_window(ev.ts, settings.retention_days, now):
                 ev.ts = now
                 ev.tags.append(TIME_ADJUSTED)

@@ -43,6 +43,7 @@ export default function App() {
   const [tenants, setTenants] = useState<string[]>([]);
   const [openAlerts, setOpenAlerts] = useState(0);
   const [theme, setTheme] = useState<Theme>(loadTheme);
+  const [info, setInfo] = useState<{ demo_data: boolean; geoip: boolean } | null>(null);
   const route = useRoute();
 
   useEffect(() => applyTheme(theme, false), []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -72,6 +73,12 @@ export default function App() {
       })
       .catch(() => setTenants([]));
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Whether to label the data as simulator-generated (and credit the country data source).
+  useEffect(() => {
+    if (!user) return;
+    api<{ demo_data: boolean; geoip: boolean }>("/api/info").then(setInfo).catch(() => setInfo(null));
+  }, [user]);
 
   // Open-alert count for the sidebar badge; refreshed on the alert worker's cadence.
   useEffect(() => {
@@ -120,10 +127,19 @@ export default function App() {
             </a>
           ))}
         </nav>
+        {info?.geoip && (
+          // Required by the DB-IP Lite licence (CC BY 4.0) on pages that show its results.
+          <a className="sidebar-credit" href="https://db-ip.com" target="_blank" rel="noreferrer">IP Geolocation by DB-IP</a>
+        )}
       </aside>
 
       <div className="content">
         <header className="topbar">
+          {info?.demo_data && (
+            <span className="demo-pill" title="This server runs a traffic simulator: the logs, attacks and IP addresses shown are generated for the demo, not real activity.">
+              <Icon name="info" size={14} />Demo data
+            </span>
+          )}
           {user.role === "admin" ? (
             <TenantSwitcher current={activeTenant} home={user.tenant} tenants={tenants}
                             onChange={(t) => setTenant(t === user.tenant ? undefined : t)} />

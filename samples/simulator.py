@@ -31,10 +31,25 @@ from urllib.request import Request, urlopen
 
 USERS = ["alice", "bob", "carol", "dave", "erin", "frank"]
 INTERNAL = [f"10.0.{s}.{h}" for s in (1, 2, 3) for h in range(10, 60, 7)]
-# Background users come from many addresses, so their occasional failed logins (a typo here
-# and there) almost never reach 5 per IP in 5 minutes. Only the staged attacks should alert.
-EXTERNAL = [f"198.51.100.{h}" for h in range(1, 255)] + [f"192.0.2.{h}" for h in range(1, 255)]
-ATTACKERS = [f"203.0.113.{h}" for h in range(100, 200, 9)]
+# Public address blocks (one /24 each) checked against the DB-IP country database, so the
+# dashboard's countries are realistic. They're large ISP and cloud networks; the simulator only
+# writes these addresses into log text and never contacts them. Everything it sends is
+# labelled "Demo data" in the website.
+OFFICE_NETS = {  # where normal users sign in from: mostly Thailand, some travel and remote work
+    "TH": ["1.46.10", "49.228.10", "171.96.10", "184.22.10", "58.8.10"],
+    "SG": ["159.89.200", "13.228.10"], "JP": ["126.10.10", "153.120.10"],
+    "US": ["3.80.10", "52.0.10"], "GB": ["86.128.10", "51.140.10"], "AU": ["1.128.10"],
+}
+ATTACKER_NETS = {  # attacks come from rented servers and hijacked machines all over the world
+    "NL": "185.107.80", "US": "34.75.10", "BR": "177.10.10", "VN": "113.160.10", "RU": "95.24.10",
+    "CN": "116.10.10", "DE": "88.198.10", "IN": "49.36.10", "FR": "163.172.10", "KR": "121.130.10",
+}
+# Background users come from many addresses (2,500+), so their occasional failed logins (a typo
+# here and there) almost never reach 5 per IP in 5 minutes. Only the staged attacks should alert.
+# Thailand is listed several times so most normal traffic is local.
+EXTERNAL = [f"{net}.{h}" for country, nets in OFFICE_NETS.items() for net in nets
+            for h in range(1, 255) for _ in range(3 if country == "TH" else 1)]
+ATTACKERS = [f"{net}.{h}" for net in ATTACKER_NETS.values() for h in range(100, 200, 9)]
 
 
 def iso(ms=False):

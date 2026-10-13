@@ -38,6 +38,7 @@ async def search_events(
     dst_ip: str | None = Query(None, description="IP or CIDR"),
     user: str | None = None,
     host: str | None = None,
+    country: str | None = Query(None, min_length=2, max_length=2, description="Country of src_ip, e.g. TH"),
     event_type: str | None = None,
     tag: str | None = Query(None, description="e.g. auth_failure"),
     q: str | None = Query(None, max_length=200, description="Free text, case-insensitive"),
@@ -52,7 +53,7 @@ async def search_events(
         raise HTTPException(422, "`from` must be before `to`")
 
     filters = SearchFilters(start=start, end=end, sources=source, actions=action, severity_min=severity_min,
-                            src_ip=src_ip, dst_ip=dst_ip, user=user, host=host, event_type=event_type,
+                            src_ip=src_ip, dst_ip=dst_ip, user=user, host=host, country=country, event_type=event_type,
                             tag=tag, q=q, cursor=cursor, limit=limit)
     try:
         sql, args = build_search(tenant, filters)

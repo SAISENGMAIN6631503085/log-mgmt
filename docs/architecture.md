@@ -60,14 +60,18 @@ All images are multi-arch (linux/amd64 and linux/arm64).
    wrong tenant).
 3. **Normalized**: `backend/app/normalizers/<source>.py` maps the payload to the common schema
    (`Event`, a Pydantic model that rejects bad values). The original payload is kept in `raw`.
-4. **Checked**: events outside `[now − RETENTION_DAYS, now + 1 day]` are rejected with a reason.
-   Bad events never block the good ones in the same batch.
-5. **Stored**: one transaction makes sure the day partitions exist, then
+4. **Checked**: events older than `RETENTION_DAYS` (or more than a day ahead) are stored at the
+   time they arrive and tagged `time_adjusted`; the original time stays in `raw`. Events that can't
+   be read are rejected with a reason, and never block the good ones in the same batch.
+5. **Enriched**: the country of `src_ip` is looked up in the DB-IP Lite database
+   (`app/geoip.py`, downloaded when the image is built, read locally) and stored as `src_country`.
+   Private and reserved addresses have no country.
+6. **Stored**: one transaction makes sure the day partitions exist, then
    COPY → temp table → `INSERT … ON CONFLICT DO NOTHING`.
    A trigger sets a `fingerprint` (sha256 of tenant + source + raw), so duplicates are skipped.
-6. **Detected**: the alert worker picks up failed logins that arrived in the last 10 minutes and
-   checks their event-time history for 5+ failures from one IP in any 5-minute window.
-7. **Expired**: the retention job drops whole day partitions older than `RETENTION_DAYS`.
+7. **Detected**: the alert worker picks up matching events that arrived in the last 10 minutes and
+   checks their event-time history against each rule (e.g. 5+ failed logins from one IP in any 5 minutes).
+8. **Expired**: the retention job drops whole day partitions older than `RETENTION_DAYS`.
 
 ## Storage
 

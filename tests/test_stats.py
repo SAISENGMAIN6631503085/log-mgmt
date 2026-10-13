@@ -76,7 +76,8 @@ def test_totals_and_breakdowns(env):
     assert {r["key"]: r["n"] for r in d["by_source"]} == {"ad": 2, "firewall": 1, "aws": 1}
     assert [r["key"] for r in d["by_severity"]] == ["critical", "high", "medium", "low", "unknown"]
     assert {r["key"]: r["n"] for r in d["by_severity"]} == {"critical": 1, "high": 0, "medium": 2, "low": 1, "unknown": 0}
-    assert d["top_src_ips"][0] == {"key": "203.0.113.50", "n": 2, "auth_failures": 2}
+    # country: None because 203.0.113.0/24 is a documentation range with no country (GeoIP).
+    assert d["top_src_ips"][0] == {"key": "203.0.113.50", "n": 2, "auth_failures": 2, "country": None}
 
 
 def test_timeline_has_zero_buckets_and_sums_to_total(env):
