@@ -49,7 +49,7 @@ services:
     restart: unless-stopped
 
   # Optional live demo traffic (off unless COMPOSE_PROFILES=demo): realistic events for both demo
-  # tenants plus a brute-force attack every 15 minutes, so a public demo never looks empty.
+  # tenants plus an attack every 15 minutes (brute force, port scan, malware in turn), so a public demo never looks empty.
   # It talks to the backend and Vector directly on the compose network, like a log shipper would.
   simulator:
     image: python:3.12-alpine

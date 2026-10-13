@@ -1,15 +1,18 @@
 """Alert worker: runs every ALERT_INTERVAL_SECONDS inside the backend process.
 
-Rule 1 (brute_force_login): >= 5 failed logins (tag auth_failure) from the same src_ip,
-within the same tenant, inside any 5-minute window of *event* time.
+Every rule has the same shape: ">= threshold matching events from the same IP (or host),
+within the same tenant, inside any `window` of *event* time". So one detection query and one
+de-duplication path serve all rules; a rule is just a filter, a grouping column and defaults.
 
 Why event time and not "the last 5 minutes": logs often arrive late (a file uploaded an hour
-later, a syslog buffer flushing). Each run looks at failures that *arrived* recently, then
-checks their event-time history, so a late-delivered attack is still caught.
+later, a syslog buffer flushing). Each run looks at matching events that *arrived* recently,
+then checks their event-time history, so a late-delivered attack is still caught.
+
+Admins can turn a rule off or change its threshold per tenant (table rule_settings).
 """
 import asyncio
-import json
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import asyncpg
@@ -20,51 +23,88 @@ from .config import settings
 
 log = logging.getLogger("alerting")
 
+
+@dataclass(frozen=True)
+class Rule:
+    id: str
+    name: str
+    description: str        # plain words, shown on the Rules page
+    where: str              # SQL condition on events; fixed code, never user input
+    group_by: str           # "src_ip" or "host": a fixed column name, never user input
+    threshold: int          # default; tenants may override it
+    window: timedelta
+    severity: int
+
+
+RULES = [
+    Rule("brute_force_login", "Brute-force login",
+         "Many failed sign-ins from one IP address: someone may be guessing passwords.",
+         "_tags @> '{auth_failure}'", "src_ip", 5, timedelta(minutes=5), 7),
+    Rule("firewall_scan", "Firewall scan",
+         "Many connections from one IP address blocked by the firewall: someone may be scanning for open ports.",
+         "source = 'firewall' AND _tags @> '{blocked}'", "src_ip", 20, timedelta(minutes=5), 6),
+    Rule("malware_detected", "Malware detected",
+         "CrowdStrike reported a high-severity threat (7 or more) on a computer.",
+         "source = 'crowdstrike' AND severity >= 7", "host", 1, timedelta(minutes=5), 9),
+]
+RULES_BY_ID = {r.id: r for r in RULES}
+
+
+def _as_text(column: str) -> str:
+    """The group value as plain text: host() turns inet 203.0.113.5 into "203.0.113.5" (::text would add "/32")."""
+    return f"host({column})" if column.endswith("src_ip") else column
+
+# Kept for readers of the original single-rule version (and its tests).
 RULE_ID = "brute_force_login"
-RULE_NAME = "Brute-force login: 5+ failed logins from one IP within 5 minutes"
-THRESHOLD = 5
-WINDOW = timedelta(minutes=5)
-SEVERITY = 7
-# Look at failures ingested in this period. Bigger than the run interval so a slow or missed
+WINDOW = RULES_BY_ID[RULE_ID].window
+
+# Look at events ingested in this period. Bigger than the run interval so a slow or missed
 # run doesn't leave gaps; overlap between runs is harmless because of de-duplication.
 INGEST_LOOKBACK = timedelta(minutes=10)
 WEBHOOK_RETRY_FOR = timedelta(hours=1)
 _LOCK_ID = 7_340_002  # one evaluator at a time, even with several backend processes
 
-# For each (tenant, src_ip) that received a failed login recently, slide a 5-minute window
-# over its failures (by event time) and return every window that reaches the threshold.
-# (count(*) OVER a RANGE frame = "failures in the 5 minutes up to and including this one".)
-_DETECT_SQL = """
+def detect_sql(rule: Rule) -> str:
+    """For each (tenant, group) that received a matching event recently, slide the rule's
+    window over its matching events (by event time) and return every window that reaches the
+    tenant's threshold. `count(*) OVER` a RANGE frame = "matches in the window up to and
+    including this one". Only fixed strings from RULES are put into the SQL text.
+
+    Parameters: $1 ingested since, $2 oldest event time, $3 window, $4 rule id, $5 default threshold.
+    """
+    key = rule.group_by
+    return f"""
 WITH candidates AS (
-    SELECT DISTINCT tenant, src_ip FROM events
-    WHERE ingested_at >= $1 AND _tags @> '{auth_failure}' AND src_ip IS NOT NULL
-      AND ts >= $2                        -- lets Postgres skip partitions outside retention
+    SELECT DISTINCT tenant, {key} AS gkey FROM events
+    WHERE ingested_at >= $1 AND ts >= $2 AND {key} IS NOT NULL AND ({rule.where})
 ),
 windows AS (
-    SELECT e.tenant, e.src_ip, e.ts AS window_end,
+    SELECT e.tenant, e.{key} AS gkey, e.ts AS window_end,
            count(*)  OVER w AS n,
            min(e.ts) OVER w AS window_start
-    FROM events e JOIN candidates c USING (tenant, src_ip)
-    WHERE e._tags @> '{auth_failure}' AND e.ts >= $2
-    WINDOW w AS (PARTITION BY e.tenant, e.src_ip ORDER BY e.ts
+    FROM events e JOIN candidates c ON c.tenant = e.tenant AND c.gkey = e.{key}
+    WHERE e.ts >= $2 AND ({rule.where})
+    WINDOW w AS (PARTITION BY e.tenant, e.{key} ORDER BY e.ts
                  RANGE BETWEEN $3::interval PRECEDING AND CURRENT ROW)
 )
-SELECT tenant, src_ip, n, window_start, window_end FROM windows
-WHERE n >= $4
-ORDER BY tenant, src_ip, window_end
+SELECT w.tenant, {"host(w.gkey)" if key == "src_ip" else "w.gkey"} AS group_key, w.n, w.window_start, w.window_end
+FROM windows w
+LEFT JOIN rule_settings s ON s.tenant = w.tenant AND s.rule_id = $4
+WHERE coalesce(s.enabled, true) AND w.n >= coalesce(s.threshold, $5)
+ORDER BY w.tenant, group_key, w.window_end
 """
 
 
-def merge_bursts(rows: list[dict]) -> list[dict]:
-    """Overlapping qualifying windows for the same (tenant, src_ip) are one attack, not many.
+def merge_bursts(rows: list[dict], key: str = "src_ip") -> list[dict]:
+    """Overlapping qualifying windows for the same (tenant, key) are one attack, not many.
 
-    Input rows are sorted by (tenant, src_ip, window_end). Output: one dict per burst with
-    the overall start/end and the highest count seen in any single 5-minute window.
+    Input rows are sorted by (tenant, key, window_end). Output: one dict per burst with
+    the overall start/end and the highest count seen in any single window.
     """
     bursts: list[dict] = []
     for r in rows:
         last = bursts[-1] if bursts else None
-        if last and (last["tenant"], last["src_ip"]) == (r["tenant"], r["src_ip"]) \
+        if last and (last["tenant"], last[key]) == (r["tenant"], r[key]) \
                 and r["window_start"] <= last["window_end"]:
             last["window_end"] = max(last["window_end"], r["window_end"])
             last["n"] = max(last["n"], r["n"])
@@ -73,29 +113,34 @@ def merge_bursts(rows: list[dict]) -> list[dict]:
     return bursts
 
 
-async def _upsert_alert(conn: asyncpg.Connection, b: dict) -> int | None:
+async def _upsert_alert(conn: asyncpg.Connection, rule: Rule, b: dict) -> int | None:
     """Create an alert for a burst, or fold it into a recent alert for the same
-    (tenant, rule, src_ip). Returns the new alert id, or None if it was merged.
+    (tenant, rule, group). Returns the new alert id, or None if it was merged.
 
-    De-duplication: if an alert for this IP ended less than one WINDOW before this burst
+    De-duplication: if an alert for this group ended less than one window before this burst
     starts (or overlaps it), it's the same ongoing attack; extend it instead of alerting again.
     """
     details_rows = await conn.fetch(
-        """SELECT DISTINCT username, source FROM events
-           WHERE tenant = $1 AND src_ip = $2 AND _tags @> '{auth_failure}' AND ts BETWEEN $3 AND $4""",
-        b["tenant"], b["src_ip"], b["window_start"], b["window_end"])
+        f"""SELECT DISTINCT username, source, host, event_type FROM events
+            WHERE tenant = $1 AND {_as_text(rule.group_by)} = $2 AND ts BETWEEN $3 AND $4 AND ({rule.where})
+            LIMIT 200""",
+        b["tenant"], b["group_key"], b["window_start"], b["window_end"])
+    pick = lambda col: sorted({r[col] for r in details_rows if r[col]})[:20]  # noqa: E731
     details = {
-        "users": sorted({r["username"] for r in details_rows if r["username"]}),
-        "sources": sorted({r["source"] for r in details_rows}),
-        "threshold": THRESHOLD,
-        "window_minutes": int(WINDOW.total_seconds() // 60),
+        "users": pick("username"),
+        "sources": pick("source"),
+        "hosts": pick("host"),
+        "event_types": pick("event_type"),
+        "group_by": rule.group_by,
+        "threshold": b["threshold"],
+        "window_minutes": int(rule.window.total_seconds() // 60),
     }
     existing = await conn.fetchval(
         """SELECT id FROM alerts
-           WHERE tenant = $1 AND rule_id = $2 AND src_ip = $3
+           WHERE tenant = $1 AND rule_id = $2 AND group_key = $3
              AND window_end >= $4::timestamptz - $5::interval AND window_start <= $6::timestamptz + $5::interval
            ORDER BY window_end DESC LIMIT 1""",
-        b["tenant"], RULE_ID, b["src_ip"], b["window_start"], WINDOW, b["window_end"])
+        b["tenant"], rule.id, b["group_key"], b["window_start"], rule.window, b["window_end"])
     if existing:
         await conn.execute(
             """UPDATE alerts SET window_start = least(window_start, $2), window_end = greatest(window_end, $3),
@@ -103,11 +148,12 @@ async def _upsert_alert(conn: asyncpg.Connection, b: dict) -> int | None:
                WHERE id = $1""",
             existing, b["window_start"], b["window_end"], b["n"], details)
         return None
+    src_ip = b["group_key"] if rule.group_by == "src_ip" else None
     return await conn.fetchval(
-        """INSERT INTO alerts (tenant, rule_id, rule_name, severity, src_ip, event_count,
+        """INSERT INTO alerts (tenant, rule_id, rule_name, severity, src_ip, group_key, event_count,
                                window_start, window_end, details)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id""",
-        b["tenant"], RULE_ID, RULE_NAME, SEVERITY, b["src_ip"], b["n"],
+           VALUES ($1,$2,$3,$4,$5::inet,$6,$7,$8,$9,$10) RETURNING id""",
+        b["tenant"], rule.id, rule.name, rule.severity, src_ip, b["group_key"], b["n"],
         b["window_start"], b["window_end"], details)
 
 
@@ -155,13 +201,17 @@ async def run_once(conn: asyncpg.Connection, now: datetime | None = None) -> lis
         # xact lock: released automatically at commit/rollback, even if this run crashes.
         if not await conn.fetchval("SELECT pg_try_advisory_xact_lock($1)", _LOCK_ID):
             return created  # another backend process is already evaluating
-        rows = await conn.fetch(_DETECT_SQL, now - INGEST_LOOKBACK,
-                                now - timedelta(days=settings.retention_days), WINDOW, THRESHOLD)
-        for burst in merge_bursts([dict(r) for r in rows]):
-            if (alert_id := await _upsert_alert(conn, burst)) is not None:
-                created.append(alert_id)
-                log.info("alert %s: %s from %s (tenant %s, %s failures)",
-                         alert_id, RULE_ID, burst["src_ip"], burst["tenant"], burst["n"])
+        oldest = now - timedelta(days=settings.retention_days)
+        thresholds = {(r["tenant"], r["rule_id"]): r["threshold"]
+                      for r in await conn.fetch("SELECT tenant, rule_id, threshold FROM rule_settings")}
+        for rule in RULES:
+            rows = await conn.fetch(detect_sql(rule), now - INGEST_LOOKBACK, oldest, rule.window, rule.id, rule.threshold)
+            for burst in merge_bursts([dict(r) for r in rows], key="group_key"):
+                burst["threshold"] = thresholds.get((burst["tenant"], rule.id), rule.threshold)
+                if (alert_id := await _upsert_alert(conn, rule, burst)) is not None:
+                    created.append(alert_id)
+                    log.info("alert %s: %s for %s (tenant %s, %s events)",
+                             alert_id, rule.id, burst["group_key"], burst["tenant"], burst["n"])
     # Outside the transaction: a slow webhook must not hold the lock or roll back alerts.
     await _deliver_webhooks(conn, now)
     return created

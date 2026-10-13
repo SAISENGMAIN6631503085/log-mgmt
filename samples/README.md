@@ -25,7 +25,7 @@ window on any day. The sample files themselves are dated 2026-10-12.
 |--------|--------------|
 | `send_syslog.sh` | Sends `firewall.log` and `network.log` to Vector (UDP 514; `-t` for TCP, `-h host`). Uses bash's `/dev/udp`, so no netcat is needed. |
 | `post_logs.py` | Sends the JSON/CSV samples to the API (`--mode json`) or as file uploads (`--mode file`). `--key` picks the tenant. Python standard library only. |
-| `simulator.py` | Continuous realistic traffic for every tenant key, plus a brute-force burst (6 failed AD logons from one IP) every `--attack-every` seconds, so alerts fire live. |
+| `simulator.py` | Continuous realistic traffic for every tenant key, plus a staged attack every `--attack-every` seconds, taking turns so every alert rule fires live: a brute force (6 failed AD logons from one IP), a port scan (25 blocked firewall connections from one IP, over syslog) and malware (a high-severity CrowdStrike detection). |
 
 `make demo` runs the first two for both demo tenants; `make simulate` runs the simulator.
 To keep it running in the background (as the live demo does), set `COMPOSE_PROFILES=demo` in `.env`

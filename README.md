@@ -36,7 +36,7 @@ Run `make up && make seed`, then work through the assignment's acceptance checkl
 | `POST /ingest` with the sample JSON, then search | Postman folder **Assignment samples (section 4)**, or `curl -k https://localhost/ingest -H "X-API-Key: lm_demoA_dev_key_change_me" -H "content-type: application/json" -d '<sample>'` |
 | AWS / M365 / AD files are normalized | **Add logs** page: drop `samples/aws_cloudtrail.json` (or the M365 / AD sample), then **See them**. Or `make demo` |
 | Top N, timeline, tenant/source/time filters | **Overview**: Source filter + 1h/24h/7d, the timeline, top IPs / users / events; tenant switcher top right (admin) |
-| Alert rule fires | `make simulate` (an attack every 2 min) or `make demo`, then **Alerts**; webhook via `ALERT_WEBHOOK_URL` |
+| Alert rule fires | `make simulate` (an attack every 2 min: brute force, port scan, malware in turn) or `make demo`, then **Alerts**; tune rules on the **Rules** page; webhook via `ALERT_WEBHOOK_URL` |
 | Viewer sees only their tenant | Sign in as `viewerA`; asking for `?tenant=demoB` returns 403 (Postman folder **Tenant isolation**) |
 | SaaS over HTTPS | The live demo above (real Let's Encrypt certificate); install steps in [docs/setup_saas.md](docs/setup_saas.md) |
 
@@ -68,7 +68,7 @@ Notes on the samples:
 | `make test` | run pytest from `/tests` inside the backend image |
 | `make logs` | follow logs from all services |
 | `make demo` | send every sample through syslog, the JSON API and file upload |
-| `make simulate` | live random traffic, with a brute-force attack every 2 minutes |
+| `make simulate` | live random traffic, with an attack every 2 minutes (brute force, port scan, malware in turn) |
 | `make retention` | drop event partitions older than `RETENTION_DAYS` now (also runs hourly) |
 
 ## Services

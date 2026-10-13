@@ -35,6 +35,7 @@ def env():
         yield client, ta, ka, tb, kb
     _db(lambda c: c.execute("DELETE FROM events WHERE tenant = ANY($1)", [ta, tb]))
     _db(lambda c: c.execute("DELETE FROM api_keys WHERE tenant = ANY($1)", [ta, tb]))
+    _db(lambda c: c.execute("DELETE FROM alerts WHERE tenant = ANY($1)", [ta, tb]))
 
 
 def count(tenant):

@@ -8,12 +8,14 @@ import { Alerts } from "./pages/Alerts";
 import { Dashboard } from "./pages/Dashboard";
 import { Events } from "./pages/Events";
 import { Login } from "./pages/Login";
+import { Rules } from "./pages/Rules";
 import { applyTheme, loadTheme, Theme, useRoute } from "./util";
 
 const PAGES: { key: string; label: string; icon: IconName; adminOnly?: boolean }[] = [
   { key: "dashboard", label: "Overview", icon: "dashboard" },
   { key: "events", label: "Search", icon: "search" },
   { key: "alerts", label: "Alerts", icon: "bell" },
+  { key: "rules", label: "Rules", icon: "sliders" },
   { key: "add", label: "Add logs", icon: "upload" },
   { key: "keys", label: "API keys", icon: "key", adminOnly: true },
 ];
@@ -139,6 +141,7 @@ export default function App() {
 
         {page === "dashboard" && <Dashboard key={key} tenant={tenant} tenantName={activeTenant} />}
         {page === "events" && <Events key={key} route={route} tenant={tenant} tenantName={activeTenant} />}
+        {page === "rules" && <Rules key={key} user={user} tenant={tenant} tenantName={activeTenant} />}
         {page === "keys" && <ApiKeys key={key} tenant={tenant} tenantName={activeTenant} />}
         {page === "add" && <AddLogs key={key} user={user} tenant={tenant} tenantName={activeTenant} />}
         {page === "alerts" && <Alerts key={key} user={user} tenant={tenant} tenantName={activeTenant} onChange={setOpenAlerts} />}

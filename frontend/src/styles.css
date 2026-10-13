@@ -473,3 +473,29 @@ h2 svg { vertical-align: -2px; margin-right: 4px; color: var(--muted); }
 .status-revoked { --dot: var(--muted); color: var(--muted); }
 tr.revoked td { color: var(--muted); }
 @media (max-width: 600px) { .keys-table th:nth-child(3), .keys-table td:nth-child(3) { display: none; } }
+
+/* Rules page */
+.rule-card.off .card-body, .rule-card.off h2, .rule-card.off .sub { opacity: 0.6; }
+.rule-condition { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 14px; color: var(--text-2); }
+.rule-condition strong { color: var(--text); }
+.threshold-input { width: 84px; text-align: center; font-weight: 600; }
+.saved { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--text-2); }
+.field-error { margin-top: 6px; font-size: 12.5px; color: var(--critical-text); }
+.card-body > .error-banner { margin-top: 12px; }
+.rule-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin-top: 14px; padding-top: 12px;
+  border-top: 1px solid var(--border); font-size: 12.5px; color: var(--text-2); }
+.rule-foot-item { display: inline-flex; align-items: center; gap: 8px; }
+.rule-foot .link { margin-left: auto; font-size: 12.5px; }
+/* On/off switch: a real checkbox underneath, so keyboard and screen readers work. */
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; flex: none; font-size: 13px; color: var(--text-2); }
+.switch.readonly { cursor: default; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch-track { position: relative; width: 38px; height: 22px; border-radius: 11px; background: var(--surface-3);
+  border: 1px solid var(--border-strong); transition: background 0.15s; }
+.switch-knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface);
+  box-shadow: var(--shadow); transition: transform 0.15s; }
+.switch input:checked + .switch-track { background: var(--accent); border-color: transparent; }
+.switch input:checked + .switch-track .switch-knob { transform: translateX(16px); background: var(--on-accent); }
+.switch input:focus-visible + .switch-track { box-shadow: 0 0 0 3px var(--accent-wash); }
+.switch input:disabled + .switch-track { opacity: 0.6; }
+@media (prefers-reduced-motion: reduce) { .switch-track, .switch-knob { transition: none; } }

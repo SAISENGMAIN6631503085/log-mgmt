@@ -48,7 +48,7 @@ demo: .env
 	python3 samples/post_logs.py --url https://$(SITE) --key $(KEY_A)
 	python3 samples/post_logs.py --url https://$(SITE) --key $(KEY_B) --mode file
 
-# Live traffic for both demo tenants, with a brute-force attack every 2 minutes (Ctrl-C to stop)
+# Live traffic for both demo tenants, with an attack every 2 minutes: brute force, port scan, malware in turn (Ctrl-C to stop)
 simulate:
 	python3 samples/simulator.py
 

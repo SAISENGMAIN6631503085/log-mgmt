@@ -175,16 +175,27 @@ How it works:
 ## Alerts
 A background task inside the backend runs every `ALERT_INTERVAL_SECONDS` (60).
 
-**Rule `brute_force_login`:** 5 or more events tagged `auth_failure` from the same `src_ip`,
-in the same tenant, within any 5-minute window. Severity 7.
+Every rule has one shape: **at least N matching events from the same IP (or computer), in the
+same tenant, within W minutes.** So one detection query and one de-duplication path serve all
+rules; a rule (in `RULES`, `app/alerting.py`) is just a SQL filter, a grouping column and defaults.
+
+| Rule | Matches | Grouped by | Default | Severity |
+|------|---------|-----------|---------|----------|
+| `brute_force_login` | events tagged `auth_failure` (any source) | `src_ip` | 5 in 5 min | 7 |
+| `firewall_scan` | firewall events tagged `blocked` | `src_ip` | 20 in 5 min | 6 |
+| `malware_detected` | CrowdStrike events with severity ≥ 7 | `host` | 1 in 5 min | 9 |
+
+**Per-tenant settings** (`rule_settings`, migration 004): admins can turn a rule off or change its
+threshold for one tenant. No row means on, with the default threshold. The window is fixed per
+rule, because a SQL window frame's size can't vary per row.
 
 How it works:
-- **Event time, not clock time.** Each run takes the IPs whose failed logins *arrived* in the
-  last 10 minutes (indexed `ingested_at`, migration 002), then slides a 5-minute window over
-  their failures by `ts` (SQL `count(*) OVER (... RANGE '5 min' PRECEDING)`). Logs that arrive
-  late, or come from an uploaded file, are still caught.
+- **Event time, not clock time.** Each run takes the groups (IPs or computers) whose matching
+  events *arrived* in the last 10 minutes (indexed `ingested_at`, migration 002), then slides the
+  rule's window over their matching events by `ts` (SQL `count(*) OVER (... RANGE '5 min' PRECEDING)`).
+  Logs that arrive late, or come from an uploaded file, are still caught.
 - **De-duplication.** Overlapping windows are one attack. If an alert for the same
-  (tenant, rule, src_ip) ended less than 5 minutes before the new burst, the existing alert is
+  (tenant, rule, group) ended less than one window before the new burst, the existing alert is
   extended (`window_end`, `event_count`) instead of creating a new one. A new attack after a
   quiet period creates a new alert.
 - **One evaluator.** `pg_try_advisory_xact_lock` makes a second backend process skip the run,
@@ -195,8 +206,11 @@ How it works:
   transaction commits, so a slow webhook never blocks or rolls back alerts.
 
 API (Bearer token, tenant-scoped like search):
-- `GET /api/alerts?status=open|acknowledged`
+- `GET /api/alerts?status=open|acknowledged`. Each alert has `group_key` (the IP or computer) and
+  `src_ip` (for IP-based rules).
 - `POST /api/alerts/{id}/ack` (admin only; viewers are read-only)
+- `GET /api/rules`: the rules with this tenant's settings and open-alert counts (everyone)
+- `PUT /api/rules/{id}` `{"enabled": true, "threshold": 10}` (admin only; applies from the next run)
 
 ## Retention
 `app/retention.py` runs hourly inside the backend and on demand with `make retention`:

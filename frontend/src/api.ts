@@ -121,13 +121,27 @@ export type Alert = {
   rule_name: string;
   severity: number;
   src_ip: string | null;
+  group_key: string | null; // the IP or computer the alert is about
   event_count: number;
   window_start: string;
   window_end: string;
-  details: { users?: string[]; sources?: string[] };
+  details: { users?: string[]; sources?: string[]; hosts?: string[]; event_types?: string[]; threshold?: number };
   status: "open" | "acknowledged";
   created_at: string;
   webhook_sent_at: string | null;
+};
+
+export type Rule = {
+  id: string;
+  name: string;
+  description: string;
+  severity: number;
+  group_by: "src_ip" | "host";
+  window_minutes: number;
+  default_threshold: number;
+  threshold: number;
+  enabled: boolean;
+  open_alerts: number;
 };
 
 export type Stats = {

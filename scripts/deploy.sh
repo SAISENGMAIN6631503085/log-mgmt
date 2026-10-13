@@ -7,6 +7,9 @@ cd "$(dirname "$0")/.."
 # --ff-only: never merge or overwrite local changes on the server; fail loudly instead.
 git pull --ff-only
 make up
+# The simulator runs samples/simulator.py from a bind mount, so a changed script doesn't
+# recreate its container; restart it to pick up the new code. No-op without the demo profile.
+docker compose restart simulator >/dev/null 2>&1 || true
 # Each rebuild leaves the previous images behind; the server has a small disk.
 docker image prune -f >/dev/null
 echo "deployed $(git log --oneline -1)"

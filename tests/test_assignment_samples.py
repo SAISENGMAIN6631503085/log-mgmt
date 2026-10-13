@@ -113,6 +113,7 @@ def keys():
         yield client, tenants, k
     _db(lambda c: c.execute("DELETE FROM events WHERE tenant = ANY($1)", list(tenants.values())))
     _db(lambda c: c.execute("DELETE FROM api_keys WHERE tenant = ANY($1)", list(tenants.values())))
+    _db(lambda c: c.execute("DELETE FROM alerts WHERE tenant = ANY($1)", list(tenants.values())))
 
 
 @pytest.mark.parametrize("sample", [API, CS, AWS, M365, AD], ids=["api", "crowdstrike", "aws", "m365", "ad"])

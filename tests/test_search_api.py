@@ -62,6 +62,7 @@ def env():
             return r
         yield search, client, token, other_id
     _db(lambda c: c.execute("DELETE FROM events WHERE tenant = ANY($1)", [tenant, other]))
+    _db(lambda c: c.execute("DELETE FROM alerts WHERE tenant = ANY($1)", [tenant, other]))
 
 
 def ids(r):

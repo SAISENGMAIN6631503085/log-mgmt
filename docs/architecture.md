@@ -107,12 +107,20 @@ events (PARTITION BY RANGE ts)            users       api_keys        alerts
 
 ## Alerting
 
-Rule `brute_force_login`: 5 or more `auth_failure` events from one `src_ip`, in one tenant,
-within 5 minutes. It uses SQL window functions (`count(*) OVER (… RANGE '5 min' PRECEDING)`).
+Three rules, all with one shape: N matching events from one IP (or computer), in one tenant,
+within W minutes. It uses SQL window functions (`count(*) OVER (… RANGE '5 min' PRECEDING)`).
+
+| Rule | Condition |
+|------|-----------|
+| Brute-force login | 5+ `auth_failure` events from one IP in 5 min |
+| Firewall scan | 20+ blocked firewall connections from one IP in 5 min |
+| Malware detected | a CrowdStrike detection with severity ≥ 7 on one computer |
+
+Admins can turn each rule off or change its threshold per tenant (Rules page, `rule_settings` table).
 
 - **Event time, not clock time.** Logs that arrive late, or come in an uploaded file, are still caught.
 - **De-duplication.** Overlapping windows are merged into one burst. A burst within 5 minutes
-  of an existing alert for the same tenant and IP extends that alert instead of creating a new one.
+  of an existing alert for the same tenant, rule and IP/computer extends that alert instead of creating a new one.
 - **One evaluator.** An advisory lock means only one backend process evaluates at a time.
 - **Webhook.** It is sent after the transaction commits, and failed deliveries are retried for an hour.
 

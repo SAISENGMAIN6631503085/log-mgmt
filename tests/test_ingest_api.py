@@ -44,6 +44,7 @@ def env():
     async def cleanup(c):
         await c.execute("DELETE FROM events WHERE tenant = ANY($1)", [tenant_a, tenant_b])
         await c.execute("DELETE FROM api_keys WHERE tenant = ANY($1)", [tenant_a, tenant_b])
+        await c.execute("DELETE FROM alerts WHERE tenant = ANY($1)", [tenant_a, tenant_b])
     _db(cleanup)
 
 

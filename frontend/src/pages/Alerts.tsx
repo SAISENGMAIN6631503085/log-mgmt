@@ -13,6 +13,28 @@ function listUsers(users: string[]) {
   return <>{names}{rest > 0 ? ` and ${rest} more` : ""}</>;
 }
 
+/** One plain sentence per rule: what happened, from where, to whom. */
+function AlertWhat({ a }: { a: Alert }) {
+  const target = a.group_key ?? a.src_ip;
+  if (a.rule_id === "firewall_scan") {
+    return <><strong>{a.event_count}</strong> blocked connections from <code>{target}</code>: possibly scanning for open ports</>;
+  }
+  if (a.rule_id === "malware_detected") {
+    return (
+      <>
+        <strong>{a.event_count}</strong> high-severity {a.event_count === 1 ? "threat" : "threats"} on computer <code>{target}</code>
+        {a.details.users?.length ? <> (user {listUsers(a.details.users)})</> : null}
+      </>
+    );
+  }
+  return (
+    <>
+      <strong>{a.event_count}</strong> failed sign-ins from <code>{target}</code>
+      {a.details.users?.length ? <> for {listUsers(a.details.users)}</> : null}
+    </>
+  );
+}
+
 type StatusFilter = "open" | "acknowledged" | "all";
 const STATUS_OPTIONS = [
   { key: "open", label: "Open" },
@@ -50,8 +72,13 @@ export function Alerts({ user, tenant, tenantName, onChange }: {
     }
   }
 
-  // Open the search page on exactly the events behind the alert.
-  const showEvents = (a: Alert) => go("events", { range: "7d", src_ip: a.src_ip ?? "", tag: "auth_failure" });
+  // Open the search page on exactly the events behind the alert (each rule matches different events).
+  const showEvents = (a: Alert) => {
+    const target = a.group_key ?? a.src_ip ?? "";
+    if (a.rule_id === "firewall_scan") go("events", { range: "7d", source: "firewall", src_ip: target, tag: "blocked" });
+    else if (a.rule_id === "malware_detected") go("events", { range: "7d", source: "crowdstrike", host: target, severity_min: "7" });
+    else go("events", { range: "7d", src_ip: target, tag: "auth_failure" });
+  };
 
   return (
     <>
@@ -67,8 +94,9 @@ export function Alerts({ user, tenant, tenantName, onChange }: {
         <div className="rule-note">
           <Icon name="alert" size={16} />
           <span>
-            An alert is raised when <strong>one IP address fails to sign in 5 or more times within 5 minutes</strong>,
-            a sign of someone guessing passwords. Check the events, then acknowledge the alert once it's handled.
+            Alerts come from <strong>detection rules</strong>, such as many failed sign-ins from one IP address, a
+            firewall scan, or malware on a computer. Check the events, then acknowledge the alert once it's handled.{" "}
+            <button className="link" onClick={() => go("rules")}>See the rules</button>
           </span>
         </div>
         <section className="card">
@@ -89,10 +117,7 @@ export function Alerts({ user, tenant, tenantName, onChange }: {
                       <span title={a.rule_name}>{a.rule_name.split(":")[0]}</span>
                       <StatusPill status={a.status} />
                     </div>
-                    <div className="alert-what">
-                      <strong>{a.event_count}</strong> failed sign-ins from <code>{a.src_ip}</code>
-                      {a.details.users?.length ? <> for {listUsers(a.details.users)}</> : null}
-                    </div>
+                    <div className="alert-what"><AlertWhat a={a} /></div>
                     <div className="alert-meta">
                       <span>Attack: {fmtTime(a.window_start)}{a.window_end !== a.window_start ? ` – ${new Date(a.window_end).toLocaleTimeString()}` : ""}</span>
                       <span>Found: {fmtTime(a.created_at)}</span>

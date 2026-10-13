@@ -3,7 +3,11 @@
 
 Every second it sends a small batch of realistic events (API, AWS, M365, AD, CrowdStrike over
 HTTP; firewall/network over syslog) for each tenant key. Every --attack-every seconds it stages
-a brute-force attack, 6 failed AD logons from one IP within a minute, so an alert fires on the
+an attack, taking turns so every alert rule gets exercised:
+  1. brute force: 6 failed AD logons from one IP within a minute (every tenant)
+  2. port scan: 25 blocked firewall connections from one IP, over syslog (the syslog tenant)
+  3. malware: a high-severity CrowdStrike detection (Falcon 4 -> 8 here) on one computer (every tenant)
+so an alert fires on the
 alert worker's next run.
 
     python3 samples/simulator.py                          # 2 events/s for demoA and demoB, until Ctrl-C
@@ -75,7 +79,9 @@ def gen_ad(event_id=None, ip=None, user=None):
 
 
 def gen_crowdstrike():
-    sev = random.choice([2, 3, 3, 4, 5])
+    # Falcon severity is 1-5 (the app doubles it to 0-10). Background detections stay at 1-3 (2-6),
+    # so only the staged malware attack reaches the "malware detected" rule's 7+.
+    sev = random.choice([1, 2, 2, 3])
     return "crowdstrike", {
         "metadata": {"eventType": "DetectionSummaryEvent", "eventCreationTime": int(time.time() * 1000),
                      "offset": random.getrandbits(32)},
@@ -83,10 +89,31 @@ def gen_crowdstrike():
                   "LocalIP": random.choice(INTERNAL), "Severity": sev, "Tactic": "Execution",
                   "DetectName": random.choice(["Suspicious PowerShell", "Malicious document", "Credential dumping"]),
                   "FileName": random.choice(["powershell.exe", "winword.exe", "rundll32.exe"]),
-                  "PatternDispositionFlags": {"QuarantineFile": sev >= 4}}}
+                  "PatternDispositionFlags": {"QuarantineFile": sev >= 3}}}
 
 
 GENERATORS = [gen_api] * 4 + [gen_aws] * 2 + [gen_m365] * 2 + [gen_ad] * 3 + [gen_crowdstrike]
+
+
+def gen_malware():
+    host = f"WS-{random.randint(1, 80):03d}"
+    return "crowdstrike", {
+        "metadata": {"eventType": "DetectionSummaryEvent", "eventCreationTime": int(time.time() * 1000),
+                     "offset": random.getrandbits(32)},
+        "event": {"ComputerName": host, "UserName": random.choice(USERS), "LocalIP": random.choice(INTERNAL),
+                  "Severity": 4, "Tactic": "Credential Access", "DetectName": "Credential dumping (mimikatz)",
+                  "FileName": "mimikatz.exe", "PatternDispositionFlags": {"QuarantineFile": True}}}
+
+
+def scan_lines(ip):
+    """A port scan as the firewall reports it: many denied connections from one IP to different ports."""
+    ts = time.strftime("%b %e %H:%M:%S", time.gmtime())
+    target = random.choice(INTERNAL)
+    return [f"<132>{ts} fw01 vendor=Fortinet product=FortiGate action=deny src={ip} dst={target} "
+            f"spt={random.randint(40000, 65535)} dpt={port} proto=tcp" for port in random.sample(range(1, 1024), 25)]
+
+
+ATTACK_KINDS = ["brute force", "port scan", "malware"]
 
 
 def syslog_line():
@@ -145,11 +172,15 @@ def main() -> int:
     start = time.time()
     next_attack = start + 10 if args.attack_every else float("inf")  # first attack soon, for the demo
     totals = {"accepted": 0, "errors": 0, "syslog": 0, "attacks": 0}
+    attack_round = 0
 
     print(f"simulating {args.rate}/s per tenant for {len(keys)} tenant(s); Ctrl-C to stop")
     try:
         while not args.duration or time.time() - start < args.duration:
             tick = time.time()
+            # Decided once per tick, so every tenant gets the same attack (no tenant misses it
+            # because the clock passed next_attack halfway through the loop).
+            attacking = tick >= next_attack
             for key in keys:
                 # Group by source: one request per source per tick.
                 batch: dict[str, list] = {}
@@ -158,11 +189,20 @@ def main() -> int:
                 for _ in range(n):
                     source, event = random.choice(GENERATORS)()
                     batch.setdefault(source, []).append(event)
-                if time.time() >= next_attack:
+                # A scan needs syslog; without it, that turn is a brute force instead.
+                kind = ATTACK_KINDS[attack_round % 3]
+                if kind == "port scan" and not sock:
+                    kind = "brute force"
+                if attacking and kind == "brute force":
                     ip, user = random.choice(ATTACKERS), random.choice(["administrator", "admin", "root"])
                     batch.setdefault("ad", []).extend(gen_ad(4625, ip, user)[1] for _ in range(6))
                     totals["attacks"] += 1
                     print(f"  attack: 6 failed logons for {user!r} from {ip} ({key[:8]}...)")
+                elif attacking and kind == "malware":
+                    source, event = gen_malware()
+                    batch.setdefault(source, []).append(event)
+                    totals["attacks"] += 1
+                    print(f"  attack: malware on {event['event']['ComputerName']} ({key[:8]}...)")
                 for source, events in batch.items():
                     r = client.send(key, source, events)
                     if "error" in r:
@@ -170,7 +210,15 @@ def main() -> int:
                         print(f"  {source}: {r}", file=sys.stderr)
                     else:
                         totals["accepted"] += r["accepted"]
-            if time.time() >= next_attack:
+            if attacking:
+                if ATTACK_KINDS[attack_round % 3] == "port scan" and sock:
+                    ip = random.choice(ATTACKERS)
+                    for line in scan_lines(ip):
+                        sock.sendto(line.encode(), (sys_host, int(sys_port or 514)))
+                    totals["syslog"] += 25
+                    totals["attacks"] += 1
+                    print(f"  attack: port scan from {ip} (25 blocked connections, over syslog)")
+                attack_round += 1
                 next_attack = time.time() + args.attack_every
             # One syslog line per second at rate >= 1; at lower rates, proportionally fewer.
             if sock and random.random() < args.rate * (daily_factor() if args.daily_cycle else 1):
