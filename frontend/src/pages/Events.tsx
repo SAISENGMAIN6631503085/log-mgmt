@@ -3,7 +3,7 @@ import { api, LogEvent, SOURCES } from "../api";
 import { Empty, SeverityBadge } from "../components/Badge";
 import { Country } from "../components/Country";
 import { Icon } from "../components/Icon";
-import { fmtTime, go, RangeKey, RANGES, rangeParams, Route, SOURCE_LABELS } from "../util";
+import { fmtTime, go, humanize, ipKind, RangeKey, RANGES, rangeParams, Route, SOURCE_LABELS } from "../util";
 
 // Filters live in the URL hash (#/events?src_ip=...), so links from the dashboard and
 // alerts pages land on a ready-made search, and a search can be bookmarked or shared.
@@ -170,11 +170,18 @@ export function Events({ route, tenant, tenantName }: { route: Route; tenant: st
                       </td>
                       <td><SeverityBadge severity={e.severity} /></td>
                       <td className="event-cell">
-                        {e.event_type ?? "(no event name)"}
+                        <span className="event-name" title={e.event_type ?? undefined}>{e.event_type ? humanize(e.event_type) : "(no event name)"}</span>
                         {/* Second line: where it came from, plus any flags in plain words */}
                         <span>{[SOURCE_LABELS[e.source] ?? e.source, ...e._tags.map((t) => TAG_LABELS[t] ?? t)].join(" · ")}</span>
                       </td>
-                      <td>{e.src_ip ? <span className="ip-cell"><code>{e.src_ip}</code><Country code={e.src_country} compact /></span> : ""}</td>
+                      <td className="ip-col">
+                        {e.src_ip && (
+                          <>
+                            <code>{e.src_ip}</code>
+                            <span className="cell-sub">{e.src_country ? <Country code={e.src_country} /> : ipKind(e.src_ip)}</span>
+                          </>
+                        )}
+                      </td>
                       <td className="clip">{e.user ?? e.host ?? ""}</td>
                     </tr>
                   ))}

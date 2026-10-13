@@ -6,7 +6,7 @@ import { Country } from "../components/Country";
 import { Delta, Donut, DonutSlice, EventsOverTime } from "../components/Charts";
 import { Icon, IconName } from "../components/Icon";
 import { Segmented } from "../components/Segmented";
-import { fmtNum, go, RangeKey, RANGES, rangeParams, sourceLabel, useTokens } from "../util";
+import { fmtNum, go, humanize, ipKind, RangeKey, RANGES, rangeParams, sourceLabel, useTokens } from "../util";
 
 /** Every tile has the same three rows: label + icon, the number, one line of context. */
 function Kpi({ icon, label, value, footer, onClick, attention }: {
@@ -26,11 +26,23 @@ function Insight({ children }: { children: React.ReactNode }) {
   return <p className="insight">{children}</p>;
 }
 
-/** Ranked list with an inline magnitude bar, scaled to the largest row. */
-function RankTable({ title, subtitle, head, rows, extra, onRow, mono, render, emptyText }: {
-  title: string; subtitle: string; head: string; rows: { key: string; n: number; extra?: number }[];
-  extra?: string; onRow: (key: string) => void; mono?: boolean; render?: (key: string) => React.ReactNode;
-  emptyText?: string;
+/** "erin@contoso.com" -> erin + contoso.com; "demo\eve" (Windows DOMAIN\user) -> eve + demo; "alice" -> alice. */
+function splitUser(user: string): { name: string; domain?: string } {
+  const at = user.indexOf("@");
+  if (at > 0) return { name: user.slice(0, at), domain: user.slice(at + 1) };
+  const slash = user.lastIndexOf("\\");
+  if (slash > 0) return { name: user.slice(slash + 1), domain: user.slice(0, slash) };
+  return { name: user };
+}
+
+type RankRow = { key: string; n: number; failed?: number; label?: React.ReactNode; sub?: React.ReactNode };
+
+/** A ranked "top N" list. Each row: rank, a readable name with one line of context under it, a thin
+ *  bar for its share of all events, the count with its %, and failed sign-ins as a badge only when
+ *  there are any (so red only appears where something actually failed). */
+function RankTable({ title, subtitle, head, rows, total, showFailed, onRow, emptyText }: {
+  title: string; subtitle: string; head: string; rows: RankRow[]; total: number; showFailed?: boolean;
+  onRow: (key: string) => void; emptyText?: string;
 }) {
   const max = Math.max(1, ...rows.map((r) => r.n));
   return (
@@ -38,19 +50,32 @@ function RankTable({ title, subtitle, head, rows, extra, onRow, mono, render, em
       <div className="card-head"><div><h2>{title}</h2><div className="sub">{subtitle}</div></div></div>
       {rows.length === 0 ? <Empty icon={<Icon name="inbox" />} title="No data">{emptyText ?? "Nothing in this time range."}</Empty> : (
         <div className="card-body flush table-wrap">
-          <table>
-            <thead><tr><th>{head}</th>{extra && <th className="num">{extra}</th>}<th className="num">Events</th></tr></thead>
+          <table className="rank-table">
+            <thead>
+              <tr>
+                <th className="rank">#</th><th>{head}</th>
+                <th className="num">Events</th>
+                {showFailed && <th className="num"><span className="long">Failed sign-ins</span><span className="short">Failed</span></th>}
+              </tr>
+            </thead>
             <tbody>
-              {rows.map((r) => (
+              {rows.map((r, i) => (
                 <tr key={r.key} className="clickable" onClick={() => onRow(r.key)} title="See these events">
-                  <td>{render ? render(r.key) : mono ? <code>{r.key}</code> : r.key}</td>
-                  {extra && <td className="num">{r.extra ? <span className="warn-num">{fmtNum(r.extra)}</span> : <span className="dim">0</span>}</td>}
-                  <td className="num">
-                    <div className="bar-cell">
-                      {fmtNum(r.n)}
-                      <span className="track"><span className="fill" style={{ width: `${(r.n / max) * 100}%` }} /></span>
-                    </div>
+                  <td className="rank">{i + 1}</td>
+                  <td className="rank-main">
+                    <div className="rank-name">{r.label ?? r.key}</div>
+                    {r.sub && <div className="rank-sub">{r.sub}</div>}
+                    <div className="rank-bar" aria-hidden="true"><span style={{ width: `${(r.n / max) * 100}%` }} /></div>
                   </td>
+                  <td className="num">
+                    <div className="rank-count">{fmtNum(r.n)}</div>
+                    <div className="rank-share">{total ? `${pct(r.n, total) || "<1"}%` : ""}</div>
+                  </td>
+                  {showFailed && (
+                    <td className="num">
+                      {r.failed ? <span className="fail-badge">{fmtNum(r.failed)}</span> : <span className="none">–</span>}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -187,22 +212,26 @@ export function Dashboard({ tenant, tenantName }: { tenant: string | undefined; 
         </div>
 
         <div className="grid-2">
-          <RankTable title="Busiest IP addresses" subtitle="Click a row to see its events" head="IP address" mono extra="Failed"
-                     rows={stats.top_src_ips.map((r) => ({ key: r.key, n: r.n, extra: r.auth_failures }))}
-                     render={(ip) => (
-                       <span className="ip-cell"><code>{ip}</code><Country code={stats.top_src_ips.find((r) => r.key === ip)?.country} compact /></span>
-                     )}
+          <RankTable title="Busiest IP addresses" subtitle="Click a row to see its events" head="IP address" total={total} showFailed
+                     rows={stats.top_src_ips.map((r) => ({
+                       key: r.key, n: r.n, failed: r.auth_failures,
+                       label: <code>{r.key}</code>,
+                       sub: r.country ? <Country code={r.country} /> : ipKind(r.key),
+                     }))}
                      onRow={(ip) => search({ src_ip: ip })} />
-          <RankTable title="Top countries" subtitle="Where outside traffic comes from. Click a row to see its events" head="Country" extra="Failed"
-                     rows={stats.top_countries.map((r) => ({ key: r.key, n: r.n, extra: r.auth_failures }))}
-                     render={(code) => <Country code={code} />}
+          <RankTable title="Top countries" subtitle="Where outside traffic comes from. Click a row to see its events" head="Country" total={total} showFailed
+                     rows={stats.top_countries.map((r) => ({ key: r.key, n: r.n, failed: r.auth_failures, label: <Country code={r.key} /> }))}
                      emptyText="No public IP addresses in this time range (private and example addresses have no country)."
                      onRow={(country) => search({ country })} />
-          <RankTable title="Most active users" subtitle="Click a row to see their events" head="User" extra="Failed"
-                     rows={stats.top_users.map((r) => ({ key: r.key, n: r.n, extra: r.auth_failures }))}
+          <RankTable title="Most active users" subtitle="Click a row to see their events" head="User" total={total} showFailed
+                     rows={stats.top_users.map((r) => {
+                       const { name, domain } = splitUser(r.key);
+                       return { key: r.key, n: r.n, failed: r.auth_failures, label: name, sub: domain };
+                     })}
                      onRow={(user) => search({ user })} />
-          <RankTable title="Most common activity" subtitle="Click a row to see those events" head="Event"
-                     rows={stats.top_event_types} onRow={(et) => search({ event_type: et })} />
+          <RankTable title="Most common activity" subtitle="Click a row to see those events" head="Event" total={total}
+                     rows={stats.top_event_types.map((r) => ({ key: r.key, n: r.n, label: humanize(r.key), sub: <code>{r.key}</code> }))}
+                     onRow={(et) => search({ event_type: et })} />
         </div>
       </>
     );

@@ -111,6 +111,27 @@ export const SOURCE_LABELS: Record<string, string> = {
 };
 export const sourceLabel = (s: string) => SOURCE_LABELS[s] ?? s;
 
+// --- readable names for codes from the logs ---
+const KEEP_UPPER = new Set(["ip", "api", "aws", "id", "ssh", "dns", "mfa", "iam", "ec2", "s3", "url"]);
+/** "logon_success" -> "Logon success", "UserLoggedIn" -> "User logged in", "RunInstances" -> "Run instances".
+ *  Only for display: the raw value is still what search and the API use. */
+export function humanize(code: string): string {
+  const words = code
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")   // camelCase / PascalCase
+    .replace(/[_\-.]+/g, " ")                  // snake_case, kebab-case
+    .trim().toLowerCase().split(/\s+/)
+    .map((w) => (KEEP_UPPER.has(w) ? w.toUpperCase() : w));
+  const text = words.join(" ");
+  return text ? text[0].toUpperCase() + text.slice(1) : code;
+}
+
+/** For IPs without a country: say why, instead of leaving a blank. */
+export function ipKind(ip: string): string {
+  if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.)/.test(ip)) return "Private network";
+  if (/^(192\.0\.2\.|198\.51\.100\.|203\.0\.113\.)/.test(ip)) return "Example address";
+  return "Country unknown";
+}
+
 // --- countries (src_country, from the backend's DB-IP lookup) ---
 /** "TH" -> 🇹🇭: a flag emoji is two "regional indicator" letters. (Windows shows the letters instead.) */
 export function countryFlag(code: string): string {

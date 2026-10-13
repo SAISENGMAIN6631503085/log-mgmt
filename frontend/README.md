@@ -41,6 +41,13 @@ Below 900 px the sidebar becomes a row of tabs above the top bar.
 
   Earlier versions had stacked severity layers, a heatmap and sparklines. They were removed
   because they took longer to read than the question they answered.
+- **Tables are built to be scanned**:
+  - "Top N" tables show a **rank**, a readable name with **one line of context** under it (an IP's
+    country or "Private network", a user's domain, an event's raw code), a thin **share bar**, the
+    count with its **% of all events**, and failed sign-ins as a **red badge only when there are any**;
+  - event codes are shown in plain words ("logon_success" → "Logon success", "UserLoggedIn" →
+    "User logged in"); the raw value stays in tooltips, the side panel and every search/API call;
+  - in Search, each IP has its country (or "Private network") underneath.
 - KPI tiles compare with the previous period of the same length ("12% more than the 24 hours before"),
   or say "Nothing in the 24 hours before" instead of showing an infinite percentage.
 - **Severity and status pills** use a dot *and* the word (Critical/High/Medium/Low, Open/Acknowledged), never colour alone.
