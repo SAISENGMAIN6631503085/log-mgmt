@@ -6,7 +6,7 @@ Open https://localhost and sign in as `admin`, `viewerA` or `viewerB` (passwords
 |------|---------------|
 | **Overview** | KPI tiles (events, failed logins, high severity, open alerts), events over time (bars), **donuts** for sources and severity, and top IPs, countries, users and event types. Tiles, slices, bars and rows open a pre-filled search. |
 | **Search** | Every `/api/events` filter. Clicking a row opens a side panel with the fields grouped (overview, network, identity, cloud), the tags, and the original log (`raw`). Results load 100 at a time. |
-| **Alerts** | Open / acknowledged / all. "Events" opens the failed logins behind an alert; admins can acknowledge. |
+| **Alerts** | A triage queue, newest first and grouped by day. A sentence on top sums up what's open ("22 open alerts: 3 critical, 15 high…, the oldest has waited 25 hours"); chips filter by rule. Each alert's headline says what happened in plain words, a coloured rail on the left shows how serious it is, and Started / Lasted / Seen in / Notified give the facts. **Investigate** opens the events behind it; admins can **Acknowledge**, and handled alerts turn grey. |
 | **Rules** | The detection rules with this tenant's settings. Admins switch a rule on/off and change its threshold; viewers see them read-only. |
 | **API keys** (admin) | Create a key per sending system (shown once, with a Copy button) and revoke it. Hidden from viewers. |
 | **Add logs** | Upload a log file (drag and drop; the log type is guessed from the file name and can be changed), with a plain-words result and a link to the new events. Plus copy-ready commands for the HTTP API and syslog. Upload is admin only; viewers see the commands. |
