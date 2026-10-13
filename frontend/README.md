@@ -65,7 +65,8 @@ Below 900 px the sidebar becomes a row of tabs above the top bar.
 - **Icons** are a small inline SVG set (`components/Icon.tsx`); no icon library.
 - **Loading and empty states**: skeleton placeholders while loading, and a short explanation when there is nothing to show.
 - **"Graphite & Signal" theme** (a log tool is used like an instrument panel, so it should feel precise):
-  - a **dark graphite sidebar** in both modes frames the app, with a teal marker on the active page;
+  - the sidebar follows the mode (white with a hairline in light, graphite in dark), with a teal
+    highlight and marker on the active page; only the login page's brand panel stays dark in both;
   - light mode is a cool grey page with white surfaces and graphite text; dark mode is deep graphite;
   - **signal teal** is the one accent: buttons, links, toggles, focus rings, chart bars and the sources donut;
   - **red is reserved for warnings**: alerts, critical/high/medium severity and failed sign-ins. Routine
