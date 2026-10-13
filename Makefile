@@ -1,6 +1,13 @@
 # Thin wrappers around docker compose so reviewers only need `make <target>`.
 COMPOSE := docker compose
 
+# A few values from .env, so health/demo also work on a SaaS host with its own name and keys.
+# Before .env exists they fall back to the appliance defaults.
+env = $(shell sed -n 's/^$(1)=//p' .env 2>/dev/null)
+SITE := $(or $(call env,SITE_ADDRESS),localhost)
+KEY_A := $(or $(shell sed -n 's/^SEED_API_KEYS=.*demoA=\([^,]*\).*/\1/p' .env 2>/dev/null),lm_demoA_dev_key_change_me)
+KEY_B := $(or $(shell sed -n 's/^SEED_API_KEYS=.*demoB=\([^,]*\).*/\1/p' .env 2>/dev/null),lm_demoB_dev_key_change_me)
+
 .PHONY: up down seed test logs ps health retention demo simulate
 
 # Create .env from the example on first run so `make up` works out of the box. Secrets get
@@ -38,8 +45,8 @@ retention: .env
 # Load every sample (timestamps moved to "now") through syslog, the JSON API and file upload
 demo: .env
 	./samples/send_syslog.sh
-	python3 samples/post_logs.py --key lm_demoA_dev_key_change_me
-	python3 samples/post_logs.py --key lm_demoB_dev_key_change_me --mode file
+	python3 samples/post_logs.py --url https://$(SITE) --key $(KEY_A)
+	python3 samples/post_logs.py --url https://$(SITE) --key $(KEY_B) --mode file
 
 # Live traffic for both demo tenants, with a brute-force attack every 2 minutes (Ctrl-C to stop)
 simulate:
@@ -51,6 +58,7 @@ logs:
 ps:
 	$(COMPOSE) ps
 
-# -k because appliance mode uses Caddy's self-signed CA
+# -k because appliance mode uses Caddy's self-signed CA. Caddy only answers TLS for SITE_ADDRESS,
+# so connect to this machine but ask for that name (--resolve).
 health:
-	@curl -sk --retry 10 --retry-delay 1 --retry-all-errors https://localhost/health; echo
+	@curl -sk --retry 10 --retry-delay 1 --retry-all-errors --resolve $(SITE):443:127.0.0.1 https://$(SITE)/health; echo

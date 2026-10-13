@@ -1,5 +1,10 @@
 # Mini Log Management System
 
+[![CI/CD](https://github.com/SAISENGMAIN6631503085/log-mgmt/actions/workflows/ci.yml/badge.svg)](https://github.com/SAISENGMAIN6631503085/log-mgmt/actions/workflows/ci.yml)
+
+**Live demo (SaaS mode): https://14.207.143.101.sslip.io**. Login details are sent separately;
+the passwords and API keys there are not the demo values in this repo.
+
 A multi-tenant log management / SIEM-lite system:
 - It ingests logs from firewalls, network devices, applications, AWS CloudTrail, Microsoft 365,
   Active Directory and CrowdStrike, and normalizes them into one schema.
@@ -33,7 +38,7 @@ Run `make up && make seed`, then work through the assignment's acceptance checkl
 | Top N, timeline, tenant/source/time filters | **Overview**: Source filter + 1h/24h/7d, the timeline, top IPs / users / events; tenant switcher top right (admin) |
 | Alert rule fires | `make simulate` (an attack every 2 min) or `make demo`, then **Alerts**; webhook via `ALERT_WEBHOOK_URL` |
 | Viewer sees only their tenant | Sign in as `viewerA`; asking for `?tenant=demoB` returns 403 (Postman folder **Tenant isolation**) |
-| SaaS over HTTPS | [docs/setup_saas.md](docs/setup_saas.md) |
+| SaaS over HTTPS | The live demo above (real Let's Encrypt certificate); install steps in [docs/setup_saas.md](docs/setup_saas.md) |
 
 Notes on the samples:
 - The PDF samples are dated 2025, older than the 7-day retention. They are stored at the time they
@@ -46,7 +51,7 @@ Notes on the samples:
 |-----|----------|
 | [docs/architecture.md](docs/architecture.md) | components, data flow, storage, security, alerting, trade-offs |
 | [docs/setup_appliance.md](docs/setup_appliance.md) | install on a single VM, send real logs, certificates, backups |
-| [docs/setup_saas.md](docs/setup_saas.md) | public VM + domain + Let's Encrypt |
+| [docs/setup_saas.md](docs/setup_saas.md) | public VM + domain (or free sslip.io name) + Let's Encrypt, CI/CD |
 | [backend/README.md](backend/README.md) | API reference, schema, normalizers, ingest, auth, search, alerts, retention |
 | [frontend/README.md](frontend/README.md) | pages and UI design decisions |
 | [ingest/README.md](ingest/README.md) | Vector syslog pipeline |
@@ -86,6 +91,11 @@ All images run on linux/amd64 and linux/arm64.
 | 4 | Simulator | `samples/simulator.py` (continuous traffic + attacks) |
 
 ## Tests
-`make test` runs about 230 pytest tests. They cover every normalizer, ingest, duplicate handling,
+`make test` runs 251 pytest tests. They cover every normalizer, ingest, duplicate handling,
 login and **tenant isolation**, search, the alert rule and webhook, retention, and stats. Database tests
-run against the compose Postgres and are skipped if it isn't running.
+run against the compose Postgres and are skipped if it isn't running, so run `make up && make seed` first.
+
+GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) does exactly that on every push:
+`make up`, `make seed`, `make test` (failing if any test was skipped), and a TypeScript build of the
+frontend. When `main` is green it redeploys the live demo; see
+[setup_saas.md](docs/setup_saas.md#7-continuous-deployment).

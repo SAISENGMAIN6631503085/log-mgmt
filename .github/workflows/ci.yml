@@ -1,0 +1,71 @@
+# CI on every push and pull request; CD to the SaaS server when main is green.
+name: CI/CD
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The reviewer's path on a fresh machine: creates .env with random secrets, builds and
+      # starts every service, checks /health, then creates the demo users and tenants.
+      # Database tests (ingest, tenant isolation, alerts, retention…) need this running.
+      - run: make up
+      - run: make seed
+      # Fail if anything was skipped: database tests skip themselves when Postgres is down,
+      # so a skip here means a lost test.
+      - run: |
+          make test | tee pytest.log
+          if grep -q skipped pytest.log; then echo "::error::tests were skipped"; exit 1; fi
+      - name: Service logs (on failure)
+        if: failure()
+        run: docker compose logs --tail=100
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      # tsc -b && vite build: fails on any TypeScript error
+      - run: npm run build
+
+  deploy:
+    name: Deploy to SaaS
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # One deploy at a time; a newer push waits instead of racing the running one.
+    concurrency: deploy
+    environment:
+      name: saas
+      url: https://14.207.143.101.sslip.io
+    steps:
+      - name: Deploy over SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$DEPLOY_HOST" ]; then echo "No deploy secrets (e.g. a fork); skipping."; exit 0; fi
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          # Pinned host key: refuse to talk to anything pretending to be our server.
+          echo "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # The key is locked to scripts/deploy.sh on the server (forced command), so the
+          # command we send is ignored; it can't run anything else.
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes "root@$DEPLOY_HOST" deploy
+      - name: Check the live site
+        run: curl -fsS --retry 10 --retry-delay 3 --retry-all-errors https://14.207.143.101.sslip.io/health
