@@ -58,6 +58,8 @@ async def run_retention(conn: asyncpg.Connection, now: datetime | None = None,
         names = [r["name"] for r in await conn.fetch(
             "SELECT inhrelid::regclass::text AS name FROM pg_inherits WHERE inhparent = 'events'::regclass")]
         dropped = partitions_to_drop(names, now.date(), retention_days)
+        # Sign-in throttling only looks back minutes; keep a day for anyone investigating.
+        await conn.execute("DELETE FROM login_failures WHERE ts < $1::timestamptz - interval '1 day'", now)
         for name in dropped:
             # Name comes from the catalog and matched the strict regex above; quote_ident anyway.
             await conn.execute(f"DROP TABLE {await conn.fetchval('SELECT quote_ident($1)', name)}")

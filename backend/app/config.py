@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     retention_days: int = 7
     alert_webhook_url: str = ""
     alert_interval_seconds: int = 60
+    # Sign-in throttling: this many failures within the window locks the account (or the client
+    # address) until the window has passed. Stops password guessing against our own login page.
+    login_max_failures: int = 5
+    login_ip_max_failures: int = 20
+    login_lock_minutes: int = 5
     # IP -> country database, downloaded at image build time (see fetch_geoip.py)
     geoip_db: str = "/app/geoip/dbip-country-lite.mmdb"
     # "demo" means the simulator service runs, so the website labels the data as generated

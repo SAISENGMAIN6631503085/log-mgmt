@@ -41,7 +41,8 @@ export function clearSession() {
 let memoryToken: string | null = loadSession()?.token ?? null;
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  // retryAfter: seconds from the Retry-After header (sent with 429 when sign-in is locked)
+  constructor(public status: number, message: string, public retryAfter?: number) {
     super(message);
   }
 }
@@ -76,7 +77,7 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
       clearSession();
       window.dispatchEvent(new Event("lm:logout")); // App listens and shows the login page
     }
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, Number(res.headers.get("Retry-After")) || undefined);
   }
   return res.json() as Promise<T>;
 }

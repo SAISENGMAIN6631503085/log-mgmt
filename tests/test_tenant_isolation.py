@@ -63,6 +63,9 @@ def world():
     async def cleanup(c):
         await c.execute("DELETE FROM events WHERE tenant = ANY($1)", [ta, tb])
         await c.execute("DELETE FROM users WHERE username = ANY($1)", [u[0] for u in users.values()])
+        # Failed sign-ins made by these tests (TestClient's address is "testclient"), so repeated
+        # test runs never add up to a lockout of the real admin account.
+        await c.execute("DELETE FROM login_failures WHERE ip = 'testclient'")
     _db(cleanup)
 
 

@@ -135,6 +135,14 @@ curl -k https://localhost/api/ingest/file -H "X-API-Key: lm_demoA_dev_key_change
 `Authorization: Bearer <token>`. The token's claims are `sub`, `role` (admin|viewer) and `tenant`.
 `GET /api/auth/me` shows the current claims.
 
+**Sign-in throttling** (migration 006, `routers/auth.py`): 5 failed sign-ins for one username within
+5 minutes pause that username, and 20 from one client address pause that address, until the oldest
+counted failure leaves the window (sliding, so no unlock job). The answer is `429` with a
+`Retry-After` header, and it's the same for usernames that don't exist, so it never reveals which
+accounts are real. A successful sign-in clears that username's count. The client address is the
+real one: uvicorn trusts `X-Forwarded-For` only because Caddy, the only way in, overwrites it.
+Limits: `LOGIN_MAX_FAILURES`, `LOGIN_IP_MAX_FAILURES`, `LOGIN_LOCK_MINUTES`.
+
 | Who | `GET /api/events` | `GET /api/events?tenant=demoB` |
 |-----|-------------------|--------------------------------|
 | viewerA (demoA) | demoA events | **403** |

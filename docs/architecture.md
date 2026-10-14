@@ -102,7 +102,7 @@ events (PARTITION BY RANGE ts)            users       api_keys        alerts
 | Concern | How it's handled |
 |---------|------------------|
 | Tenant isolation | Every data endpoint gets its tenant from one dependency (`scoped_tenant`). It returns the JWT's tenant for viewers and returns 403 if a viewer asks for another; admins may pass `?tenant=`. The value goes into every SQL `WHERE`. Another tenant's event or alert by id returns 404, so its existence isn't revealed. Covered by `tests/test_tenant_isolation.py`. |
-| Login | Passwords are hashed with bcrypt. Wrong password and unknown user give the same error and the same timing (a dummy hash check). JWT is HS256 with the algorithm pinned on decode, which blocks `alg: none`. The backend refuses to start with a short or example `JWT_SECRET`. |
+| Login | Passwords are hashed with bcrypt. Wrong password and unknown user give the same error and the same timing (a dummy hash check). JWT is HS256 with the algorithm pinned on decode, which blocks `alg: none`. The backend refuses to start with a short or example `JWT_SECRET`. 5 failed sign-ins for one username (or 20 from one address) within 5 minutes pause further tries with `429 Retry-After`, the same answer for unknown usernames. |
 | Ingest keys | Random `lm_…` keys, stored as SHA-256 (high-entropy keys don't need bcrypt, and a fixed hash allows an indexed lookup). Revocable. |
 | Syslog | No authentication exists in the protocol. Port 514 can be limited with `SYSLOG_BIND` or a firewall. The internal endpoint needs a shared token, and Caddy returns 404 for it from outside. |
 | SQL injection | All values are passed as query parameters; column names are fixed in code. Tested with hostile input. |
