@@ -1,46 +1,95 @@
-import csv
+"""Shared test helpers. Integration tests use the real databases and the Go ingest service
+(run them with `make test`); each test uses its own random tenant."""
+import hashlib
 import json
+import os
+import time
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
 
-# Works both in the container (/app/samples is mounted next to /app/tests) and from the repo root.
-SAMPLES = Path(__file__).resolve().parent.parent / "samples"
-
-# Fixed "current time" so syslog year inference is deterministic.
-NOW = datetime(2026, 10, 12, 12, 0, tzinfo=timezone.utc)
+# The Go ingest service, reached on the compose network (tests run in a container there).
+INGEST_URL = os.environ.get("INGEST_URL", "http://ingest:8080")
 
 
-def sample_lines(name: str) -> list[str]:
-    return [l for l in (SAMPLES / name).read_text().splitlines() if l.strip()]
+def ingest_client():
+    """HTTP client for the ingest service: logs are sent to it, as Caddy and Vector do."""
+    import httpx
+    return httpx.Client(base_url=INGEST_URL, timeout=30)
 
 
-def sample_json(name: str):
-    return json.loads((SAMPLES / name).read_text())
+@dataclass
+class Event:
+    """A normalized event, for seeding test data (normalizing is the Go service's job).
+    Field names follow the common schema."""
+    ts: datetime
+    tenant: str
+    source: str
+    raw: dict = field(default_factory=dict)
+    tags: list = field(default_factory=list)
+    vendor: str | None = None
+    product: str | None = None
+    event_type: str | None = None
+    event_subtype: str | None = None
+    severity: int | None = None
+    action: str | None = None
+    src_ip: str | None = None
+    src_port: int | None = None
+    dst_ip: str | None = None
+    dst_port: int | None = None
+    protocol: str | None = None
+    user: str | None = None
+    host: str | None = None
+    process: str | None = None
+    url: str | None = None
+    http_method: str | None = None
+    status_code: int | None = None
+    rule_name: str | None = None
+    rule_id: str | None = None
+    cloud_account_id: str | None = None
+    cloud_region: str | None = None
+    cloud_service: str | None = None
+    src_country: str | None = None
 
 
-def sample_ndjson(name: str) -> list[dict]:
-    return [json.loads(l) for l in sample_lines(name)]
+def fingerprint(tenant: str, source: str, raw) -> str:
+    """The dedup fingerprint, computed exactly as the Go service does (ingest/store): sha256 of
+    [tenant, source, raw] as JSON with sorted keys and no spaces."""
+    text = json.dumps([tenant, source, raw], sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
-def sample_csv(name: str) -> list[dict]:
-    with open(SAMPLES / name, newline="") as f:
-        return list(csv.DictReader(f))
+_last_id = 0
 
 
-def store_events(events) -> int:
-    """Store Event objects through the app's own write path (events_store.insert_events, which
-    writes to ClickHouse). Tests that read events through the API seed data this way."""
+def new_id() -> int:
+    """Time-ordered ids under 2^53, the same layout the Go service uses (ms << 12 + counter),
+    with a different offset so test rows never collide with real ones."""
+    global _last_id
+    _last_id = max(_last_id + 1, (int(time.time() * 1000) << 12) + 2047)
+    return _last_id
+
+
+def store_events(events: list[Event]) -> int:
+    """Write test events straight into ClickHouse, for tests of what reads them (search, the
+    dashboard, alerts). Tests of ingest itself send logs to the Go service instead."""
     import asyncio
 
     from app.clickhouse import ch
-    from app.events_store import insert_events
+
+    rows = []
+    for e in events:
+        d = asdict(e)
+        d.update(id=new_id(), ts=e.ts.isoformat(), username=d.pop("user"), raw=json.dumps(e.raw),
+                 fingerprint=fingerprint(e.tenant, e.source, e.raw))
+        rows.append(d)
 
     async def run():
         try:
-            return await insert_events(events)
+            await ch.insert("events", rows)
         finally:
             await ch.close()
-    return asyncio.run(run())
+    asyncio.run(run())
+    return len(rows)
 
 
 def count_events(tenant: str, **where) -> int:
@@ -62,8 +111,10 @@ def count_events(tenant: str, **where) -> int:
     return asyncio.run(run())
 
 
-# Test tenants whose events are deleted once, at the end of the run (see below).
+# Test tenants whose events are deleted once, at the end of the run (see below), and device
+# names (`host`) of test events that had to go to a real tenant (syslog's DEFAULT_TENANT).
 _CH_CLEANUP: set[str] = set()
+_CH_CLEANUP_HOSTS: set[str] = set()
 
 
 def delete_events(tenants: list[str]) -> None:
@@ -78,7 +129,7 @@ def delete_events(tenants: list[str]) -> None:
 
 def pytest_sessionfinish(session, exitstatus):
     """One ClickHouse delete for all test tenants, not waited for (lightweight_deletes_sync=0)."""
-    if not _CH_CLEANUP:
+    if not (_CH_CLEANUP or _CH_CLEANUP_HOSTS):
         return
     import asyncio
 
@@ -89,6 +140,9 @@ def pytest_sessionfinish(session, exitstatus):
             for table in ("events", "events_minutely"):
                 await ch.command(f"DELETE FROM {table} WHERE tenant IN {{t:Array(String)}} "
                                  "SETTINGS lightweight_deletes_sync = 0", {"t": sorted(_CH_CLEANUP)})
+            # events_minutely has no host column; a test event or two in a real tenant's totals is harmless.
+            await ch.command("DELETE FROM events WHERE host IN {h:Array(String)} "
+                             "SETTINGS lightweight_deletes_sync = 0", {"h": sorted(_CH_CLEANUP_HOSTS)})
         finally:
             await ch.close()
     asyncio.run(run())

@@ -14,8 +14,7 @@ from fastapi.testclient import TestClient
 from app.auth import hash_password
 from app.config import settings
 from app.main import app
-from app.normalizers.common import Event
-from conftest import delete_events, store_events
+from conftest import Event, delete_events, store_events
 
 PASSWORD = "test-password-1"
 

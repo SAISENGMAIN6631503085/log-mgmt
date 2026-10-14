@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..auth import scoped_tenant
 from ..clickhouse import ch
-from ..normalizers.common import Action, Source
+from ..schema import Action, Source
 from ..search import SearchFilters, build_search, encode_cursor, row_to_api
 
 router = APIRouter(prefix="/api/events", tags=["events"])

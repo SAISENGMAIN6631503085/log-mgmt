@@ -8,7 +8,7 @@ SITE := $(or $(call env,SITE_ADDRESS),localhost)
 KEY_A := $(or $(shell sed -n 's/^SEED_API_KEYS=.*demoA=\([^,]*\).*/\1/p' .env 2>/dev/null),lm_demoA_dev_key_change_me)
 KEY_B := $(or $(shell sed -n 's/^SEED_API_KEYS=.*demoB=\([^,]*\).*/\1/p' .env 2>/dev/null),lm_demoB_dev_key_change_me)
 
-.PHONY: up down seed test logs ps health retention demo simulate ch-backfill
+.PHONY: up down seed test logs ps health retention demo simulate
 
 # Create .env from the example on first run so `make up` works out of the box. Secrets get
 # fresh random values (the backend refuses the example JWT_SECRET, and no two installs should
@@ -34,19 +34,16 @@ seed: .env
 	$(COMPOSE) exec backend python -m app.seed
 
 # Tests live in /tests at the repo root (assignment layout), so mount them into the backend image.
-# `python -m` puts /app on sys.path so tests can `import app`. faulthandler_timeout: a test
-# still running after 2 minutes prints its stack trace, so a hang shows where it is.
+# Two suites: pytest (backend, plus end to end through the running services) and go test
+# (the ingest service). `python -m` puts /app on sys.path so tests can `import app`.
+# faulthandler_timeout: a test still running after 2 minutes prints its stack trace.
 test: .env
-	$(COMPOSE) run --rm --no-deps -v $(CURDIR)/tests:/app/tests -v $(CURDIR)/samples:/app/samples:ro backend python -m pytest -q -o faulthandler_timeout=120 tests
+	$(COMPOSE) run --rm --no-deps -v $(CURDIR)/tests:/app/tests backend python -m pytest -q -o faulthandler_timeout=120 tests
+	$(COMPOSE) run --rm --no-deps ingest-test
 
 # Drop days of events older than RETENTION_DAYS now (the backend also does this hourly)
 retention: .env
 	$(COMPOSE) exec backend python -m app.retention
-
-# Transitional, for the one deploy that removes Postgres events: the server's previous deploy
-# script still calls this after updating. Events are stored only in ClickHouse now.
-ch-backfill:
-	@echo "ch-backfill: nothing to do; events are stored only in ClickHouse"
 
 # Load every sample (timestamps moved to "now") through syslog, the JSON API and file upload
 demo: .env

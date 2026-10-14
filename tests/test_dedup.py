@@ -2,17 +2,17 @@
 Runs against the real databases; skipped if they aren't running."""
 import asyncio
 import json
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import asyncpg
+import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from app.api_keys import create_key
 from app.config import settings
-from app.main import app
-from conftest import count_events, delete_events
+from conftest import _CH_CLEANUP_HOSTS, count_events, delete_events, fingerprint, ingest_client
 
 
 def _db(fn):
@@ -33,7 +33,11 @@ def env():
         pytest.skip("Postgres not reachable; run `make up` first")
     ta, tb = f"d_{uuid.uuid4().hex[:8]}", f"d_{uuid.uuid4().hex[:8]}"
     ka, kb = _db(lambda c: create_key(c, ta, "t")), _db(lambda c: create_key(c, tb, "t"))
-    with TestClient(app) as client:
+    with ingest_client() as client:
+        try:
+            client.get("/health")
+        except httpx.HTTPError:
+            pytest.skip("ingest service not reachable; run `make up` first")
         yield client, ta, ka, tb, kb
     _db(lambda c: c.execute("DELETE FROM api_keys WHERE tenant = ANY($1)", [ta, tb]))
     _db(lambda c: c.execute("DELETE FROM alerts WHERE tenant = ANY($1)", [ta, tb]))
@@ -113,30 +117,28 @@ def test_file_reupload(env):
     assert count(ta) == 2
 
 
-def test_syslog_retry_is_stored_once(env, monkeypatch):
-    # Vector retries a batch when the backend didn't answer in time; that must not duplicate.
+def test_syslog_retry_is_stored_once(env):
+    # Vector retries a batch when the ingest service didn't answer in time; that must not
+    # duplicate. Uses the real token; the sender isn't in SYSLOG_TENANT_MAP, so the event goes to
+    # DEFAULT_TENANT, and a unique device name tells this test's event apart.
     client, *_ = env
-    tenant = f"d_{uuid.uuid4().hex[:8]}"
-    monkeypatch.setattr(settings, "syslog_ingest_token", "secret")
-    monkeypatch.setattr(settings, "default_tenant", tenant)
-    line = f"<132>{datetime.now(timezone.utc):%b %d %H:%M:%S} fw01 action=deny src=203.0.113.4 dst=10.0.0.1"
+    device = f"fw-{uuid.uuid4().hex[:8]}"
+    line = f"<132>{datetime.now(timezone.utc):%b %d %H:%M:%S} {device} action=deny src=203.0.113.4 dst=10.0.0.1"
+    token = {"X-Ingest-Token": os.environ["SYSLOG_INGEST_TOKEN"]}
+    _CH_CLEANUP_HOSTS.add(device)
     for _ in range(2):
-        client.post("/api/ingest/syslog", json=[{"message": line, "host": "192.0.2.1"}], headers={"X-Ingest-Token": "secret"})
-    try:
-        assert count(tenant) == 1
-    finally:
-        delete_events([tenant])
+        r = client.post("/api/ingest/syslog", json=[{"message": line, "host": "192.0.2.1"}], headers=token)
+        assert r.status_code == 200, r.text
+    assert count_events(os.environ.get("DEFAULT_TENANT", "demoA"), host=device) == 1
 
 
 def test_fingerprint_cannot_be_supplied_by_caller(env):
-    # The app always computes it from the content, so a forged value can't dodge (or cause)
-    # deduplication: a "fingerprint" field in the body is just part of the content.
+    # The service always computes it from the content, so a forged value can't dodge (or cause)
+    # deduplication: a "fingerprint" field in the body is just part of the content. This also
+    # checks the Go service hashes exactly like conftest.fingerprint (and the old Python code).
     from app.clickhouse import ch
-    from app.ch_events import fingerprint
-    from app.normalizers.common import Event
     client, ta, ka, *_ = env
-    t = ts()
-    post(client, ka, {"timestamp": t, "event_type": "a", "fingerprint": "00"})
+    post(client, ka, {"timestamp": ts(), "event_type": "a", "fingerprint": "00", "user": "zo\u00eb"})
 
     async def stored():
         try:
@@ -144,6 +146,5 @@ def test_fingerprint_cannot_be_supplied_by_caller(env):
         finally:
             await ch.close()
     [row] = asyncio.run(stored())
-    raw = json.loads(row["raw"])
     assert row["fingerprint"] != "00"
-    assert row["fingerprint"] == fingerprint(Event(ts=t, tenant=ta, source="api", raw=raw))
+    assert row["fingerprint"] == fingerprint(ta, "api", json.loads(row["raw"]))

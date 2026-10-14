@@ -10,7 +10,7 @@ from .alerting import worker_loop
 from .auth import check_jwt_secret
 from .clickhouse import ch
 from .retention import retention_loop
-from .routers import alerts, auth, events, ingest, keys, rules, stats
+from .routers import alerts, auth, events, keys, rules, stats
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 # httpx logs every request (each ClickHouse query and webhook) at INFO: too noisy.
@@ -34,15 +34,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Mini Log Management", lifespan=lifespan)
 app.include_router(auth.router)
-app.include_router(ingest.router)
 app.include_router(events.router)
 app.include_router(alerts.router)
 app.include_router(stats.router)
 app.include_router(keys.router)
 app.include_router(rules.router)
-# The assignment calls the JSON endpoint "POST /ingest"; serve it there too (same handler, same auth).
-app.add_api_route("/ingest", ingest.ingest_json, methods=["POST"], response_model=ingest.IngestResult,
-                  tags=["ingest"], summary="Alias of POST /api/ingest")
+# Logs arrive at the Go ingest service (/ingest, /api/ingest/*), not here; Caddy routes them.
 
 
 @app.get("/health")

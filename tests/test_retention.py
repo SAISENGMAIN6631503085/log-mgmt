@@ -5,11 +5,10 @@ from datetime import date, datetime, timedelta, timezone
 import asyncpg
 import pytest
 
-from app import ch_events
 from app.clickhouse import ch
 from app.config import settings
 from app.retention import partition_ids, partitions_to_drop, run_retention
-from conftest import _CH_CLEANUP
+from conftest import _CH_CLEANUP, new_id
 
 TODAY = date(2026, 10, 12)
 
@@ -79,7 +78,7 @@ def test_run_retention_drops_old_days_with_their_rows(db_up):
     edge = today - timedelta(days=keep_days)
     # Written straight to the table: ingest itself would refuse events this old. The edge row is
     # at 23:59 so the table's own TTL (ts + RETENTION_DAYS) can't expire it during the test.
-    rows = [{"id": ch_events.new_id(), "ts": datetime(d.year, d.month, d.day, 23, 59, tzinfo=timezone.utc).isoformat(),
+    rows = [{"id": new_id(), "ts": datetime(d.year, d.month, d.day, 23, 59, tzinfo=timezone.utc).isoformat(),
              "tenant": "ret_test", "source": "api", "raw": "{}", "tags": [], "fingerprint": f"ret{d}"}
             for d in [*old_days, edge]]
     _ch(lambda: ch.insert("events", rows))

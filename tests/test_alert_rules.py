@@ -15,8 +15,7 @@ from app.alerting import run_once
 from app.auth import Claims, create_token
 from app.config import settings
 from app.main import app
-from app.normalizers.common import Event
-from conftest import delete_events, store_events
+from conftest import Event, delete_events, store_events
 
 
 def _run(fn):

@@ -9,23 +9,24 @@ The author must be able to explain every design decision in an interview, so kee
 and add short comments explaining *why*, not *what*.
 
 ## Tech stack (do not add new major dependencies without asking)
-- Collector: **Vector** — listens on syslog UDP/TCP 514, parses, and forwards JSON to the backend over HTTP
-- Backend: **Python 3.12 + FastAPI**, SQLAlchemy Core or asyncpg, Pydantic v2
-- Storage: **PostgreSQL 16** — `events` table partitioned by day (RANGE on `ts`), JSONB `raw`, GIN index on `raw` and `_tags`
-  - (If switching to ClickHouse for events: keep Postgres for users/rules/alerts; use MergeTree, ORDER BY (tenant, ts), TTL 7+ days)
+- Collector: **Vector** — listens on syslog UDP/TCP 514 and forwards raw lines as JSON to the ingest service over HTTP
+- Ingest service: **Go 1.23** (net/http, pgx, golang-jwt, maxminddb) — receives every log, normalizes, enriches, dedups, writes to ClickHouse
+- Backend: **Python 3.12 + FastAPI**, asyncpg, Pydantic v2 — login, search, dashboard, alerts, API keys, rules, retention
+- Storage: **ClickHouse 24.8** for events (ReplacingMergeTree, PARTITION BY day, ORDER BY (tenant, ts, fingerprint), TTL = RETENTION_DAYS);
+  **PostgreSQL 16** for users, api_keys, alerts, rule_settings, login_failures
 - Frontend: **React + Vite + TypeScript**, Recharts, plain CSS or Tailwind
 - Reverse proxy / TLS: **Caddy** (Let's Encrypt in SaaS mode, `tls internal` self-signed in appliance mode)
 - Everything runs via **docker-compose.yml**; all images must support linux/arm64 AND linux/amd64
-- Tests: **pytest** (backend), optional Vitest (frontend)
+- Tests: **pytest** (backend + end to end), **go test** (ingest), optional Vitest (frontend)
 - Everything must be free / open-source
 
 ## Repository layout (required by the assignment)
 ```
-/backend/      FastAPI app (api, auth, normalizers, alert worker, retention job) + README
+/backend/      FastAPI app (api, auth, search, stats, alert worker, retention job) + README
 /frontend/     React app + README
-/ingest/       Vector config + README
+/ingest/       Go ingest service (normalizers, store, endpoints) + Vector config + README
 /samples/      sample log files, send_syslog.sh, post_logs.py, simulator
-/tests/        pytest tests (at least: normalizers, tenant isolation, alert rule)
+/tests/        pytest tests (at least: tenant isolation, alert rule, ingest end to end); normalizer tests are Go, in /ingest
 /docs/         architecture.md, setup_appliance.md, setup_saas.md
 docker-compose.yml, .env.example, Makefile, Caddyfile, postman_collection.json
 ```
@@ -38,14 +39,14 @@ docker-compose.yml, .env.example, Makefile, Caddyfile, postman_collection.json
 `rule_name`, `rule_id`, `cloud_account_id`, `cloud_region`, `cloud_service`, `raw` (original), `_tags` (text[])
 
 ## Normalization rules
-- One mapper function per source in `backend/app/normalizers/<source>.py`, each pure and unit-tested
+- One mapper function per source in `ingest/normalize/<source>.go`, each pure and unit-tested
 - Always keep the original payload in `raw`
 - Unify field aliases: `ip`/`src` → `src_ip`, `dst` → `dst_ip`, `spt` → `src_port`, `dpt` → `dst_port`, `proto` → `protocol`
 - Syslog: parse `<PRI>`, timestamp, hostname, then `key=value` pairs. Syslog severity (PRI % 8) maps to 0-10.
   Syslog has no year → assume current year, UTC. Syslog has no tenant → map by sender IP via config, else `DEFAULT_TENANT`.
 - AD 4625 / M365 failed status / api `*_failed` → `action=login`, `_tags` include `auth_failure`
 
-## Ingestion endpoints
+## Ingestion endpoints (Go ingest service; Caddy routes `/ingest` and `/api/ingest/*` to it)
 - `POST /api/ingest` — single JSON event or array (auth: per-tenant API key header `X-API-Key`)
 - `POST /api/ingest/file` — upload JSON / NDJSON / CSV batch (AWS, M365, AD, CrowdStrike samples)
 - `POST /api/ingest/syslog` — internal, called only by Vector

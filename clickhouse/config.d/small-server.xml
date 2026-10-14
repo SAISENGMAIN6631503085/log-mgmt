@@ -6,8 +6,12 @@
         <level>warning</level>
         <console>1</console>
     </logger>
-    <!-- Hard ceiling for the whole server; queries fail cleanly instead of the OS killing it. -->
-    <max_server_memory_usage>650000000</max_server_memory_usage>
+    <!-- Hard ceiling for the whole server; queries fail cleanly instead of the OS killing it.
+         ClickHouse counts its resident memory here, which includes ~240 MB of its own program
+         code and memory left fragmented by many small inserts, so 650 MB left too little room:
+         after a day of test runs, inserts were refused. 900 MB still fits a 2 GB VM (the rest of
+         the stack uses ~500 MB, plus 2 GB of swap); one query stays capped at 400 MB (users.d). -->
+    <max_server_memory_usage>900000000</max_server_memory_usage>
     <mark_cache_size>67108864</mark_cache_size>
     <index_mark_cache_size>33554432</index_mark_cache_size>
     <uncompressed_cache_size>0</uncompressed_cache_size>

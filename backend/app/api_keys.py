@@ -1,10 +1,10 @@
-"""Per-tenant ingest API keys (X-API-Key header)."""
+"""Per-tenant ingest API keys (X-API-Key header).
+
+Keys are created, listed and revoked here (the admin "API keys" page and `make seed`); the Go
+ingest service checks them when logs arrive, by looking up the same SHA-256 hash.
+"""
 import hashlib
 import secrets
-
-from fastapi import Header, HTTPException
-
-from . import db
 
 KEY_PREFIX = "lm_"  # makes leaked keys easy to recognise (and grep for) in code/logs
 
@@ -26,17 +26,3 @@ async def create_key(conn, tenant: str, name: str, key: str | None = None) -> st
         tenant, name, hash_key(key), key[:8],
     )
     return key
-
-
-async def tenant_from_api_key(x_api_key: str | None = Header(default=None)) -> str:
-    """FastAPI dependency: the tenant is decided by the key, never by the request body."""
-    if not x_api_key:
-        raise HTTPException(401, "missing X-API-Key header")
-    async with db.pool.acquire() as conn:
-        tenant = await conn.fetchval(
-            "SELECT tenant FROM api_keys WHERE key_hash = $1 AND revoked_at IS NULL", hash_key(x_api_key)
-        )
-    if tenant is None:
-        # Same message for unknown and revoked keys: don't tell an attacker which one it was.
-        raise HTTPException(401, "invalid API key")
-    return tenant

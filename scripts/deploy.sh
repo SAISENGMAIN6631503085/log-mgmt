@@ -20,6 +20,10 @@ main() {
         docker compose restart clickhouse
         docker compose up -d --wait clickhouse
     fi
+    # Same for Vector's config (a mounted file): restart it so it uses the new one.
+    if ! git diff --quiet "$before" HEAD -- ingest/vector.yaml; then
+        docker compose restart vector
+    fi
     # The simulator runs samples/simulator.py from a bind mount, so a changed script doesn't
     # recreate its container; restart it to pick up the new code. No-op without the demo profile.
     docker compose restart simulator >/dev/null 2>&1 || true

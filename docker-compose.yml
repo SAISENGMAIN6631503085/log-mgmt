@@ -53,6 +53,25 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # Receives every log (JSON API, file upload, syslog from Vector), normalizes it and stores it
+  # in ClickHouse. Written in Go: it's the one part that handles every single log. Not published:
+  # Caddy and Vector reach it on the compose network.
+  ingest:
+    build: ./ingest
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # The backend creates the ClickHouse tables at startup, so wait for it before writing.
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/ingest", "-healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
   frontend:
     build: ./frontend
     restart: unless-stopped
@@ -69,24 +88,36 @@ services:
       - "${SYSLOG_BIND:-0.0.0.0}:514:514/udp"
       - "${SYSLOG_BIND:-0.0.0.0}:514:514/tcp"
     depends_on:
-      - backend
+      - ingest
     restart: unless-stopped
 
   # Optional live demo traffic (off unless COMPOSE_PROFILES=demo): realistic events for both demo
   # tenants plus an attack every 15 minutes (brute force, port scan, malware in turn), so a public demo never looks empty.
-  # It talks to the backend and Vector directly on the compose network, like a log shipper would.
+  # It talks to the ingest service and Vector directly on the compose network, like a log shipper would.
   simulator:
     image: python:3.12-alpine
     profiles: ["demo"]
     volumes:
       - ./samples:/samples:ro
     command: >-
-      python -u /samples/simulator.py --url http://backend:8000 --keys ${SEED_API_KEYS}
+      python -u /samples/simulator.py --url http://ingest:8080 --keys ${SEED_API_KEYS}
       --syslog vector:514 --rate 0.3 --daily-cycle --attack-every 900
     depends_on:
-      backend:
+      ingest:
         condition: service_healthy
     restart: unless-stopped
+
+  # Runs the Go tests (`make test`); never started by `make up`.
+  ingest-test:
+    image: golang:1.23-alpine
+    profiles: ["test"]
+    env_file: .env   # the ClickHouse tests write to the real database, like the pytest suite
+    volumes:
+      - .:/repo:ro          # the tests read /repo/samples too
+      - gomod:/go/pkg/mod   # downloaded modules, kept between runs
+      - gocache:/root/.cache/go-build
+    working_dir: /repo/ingest
+    command: ["go", "test", "-count=1", "./..."]
 
   caddy:
     image: caddy:2.10-alpine
@@ -101,6 +132,7 @@ services:
       - caddy_config:/config
     depends_on:
       - backend
+      - ingest
       - frontend
     restart: unless-stopped
 
@@ -109,3 +141,5 @@ volumes:
   chdata:
   caddy_data:
   caddy_config:
+  gomod:
+  gocache:

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from app.auth import Claims, create_token
 from app.config import settings
 from app.main import app
-from conftest import delete_events
+from conftest import delete_events, ingest_client
 
 
 def _db(fn):
@@ -44,9 +44,11 @@ def env():
     delete_events([a, b])
 
 
-def _send(client, key: str) -> int:
+def _send(_client, key: str) -> int:
+    """Send one log with this key to the Go ingest service (which checks keys in the same table)."""
     event = {"timestamp": datetime.now(timezone.utc).isoformat(), "event_type": "test"}
-    return client.post("/api/ingest", json=event, headers={"X-API-Key": key}).status_code
+    with ingest_client() as ingest:
+        return ingest.post("/api/ingest", json=event, headers={"X-API-Key": key}).status_code
 
 
 def test_created_key_works_and_is_shown_once(env):

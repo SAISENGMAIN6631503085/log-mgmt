@@ -29,7 +29,7 @@ Edit `.env`. At minimum, change the secrets:
 | Variable | Set to |
 |----------|--------|
 | `POSTGRES_PASSWORD` | any long random string |
-| `JWT_SECRET` | `openssl rand -hex 32` (the backend refuses to start with the example value) |
+| `JWT_SECRET` | `openssl rand -hex 32` (the backend and ingest service refuse to start with the example value) |
 | `SYSLOG_INGEST_TOKEN` | `openssl rand -hex 32` |
 | `SEED_ADMIN_PASSWORD`, `SEED_VIEWER_PASSWORD` | passwords for the demo users |
 | `SEED_API_KEYS` | `demoA=<key>,demoB=<key>`, ingest keys for the demo tenants |
@@ -100,7 +100,7 @@ Firefox has its own certificate store: add the file under *Settings → Certific
 
 | Symptom | Check |
 |---------|-------|
-| `make up` hangs or fails | `docker compose logs backend`. A weak `JWT_SECRET` stops the backend on purpose. |
+| `make up` hangs or fails | `docker compose logs backend ingest`. A weak `JWT_SECRET` stops both on purpose. |
 | Syslog doesn't show up | `docker compose logs vector`; is port 514 open in the firewall? Was the timestamp within the last 7 days? |
 | Syslog lands in the wrong tenant | `SYSLOG_TENANT_MAP`. With Docker Desktop (Mac/Windows) every sender appears as Docker's gateway IP, so all syslog goes to `DEFAULT_TENANT`. On Linux the real IP is kept. |
 | Events "rejected … retention window" | The event is older than `RETENTION_DAYS`. The demo scripts move sample timestamps to now; for your own files use recent data. |

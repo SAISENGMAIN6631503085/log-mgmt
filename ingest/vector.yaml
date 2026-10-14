@@ -1,6 +1,6 @@
-# Vector: receive syslog from devices and forward raw lines to the backend as JSON.
-# We use the plain `socket` source (not `syslog`) on purpose: the backend's syslog parser
-# is unit-tested Python, and it gets the untouched line plus the sender IP, which it needs
+# Vector: receive syslog from devices and forward raw lines to the ingest service as JSON.
+# We use the plain `socket` source (not `syslog`) on purpose: the ingest service's syslog parser
+# is unit-tested Go, and it gets the untouched line plus the sender IP, which it needs
 # to pick the tenant. Each event looks like {"message": "<134>Oct 12 ...", "host": "10.0.1.5", ...}.
 sources:
   syslog_udp:
@@ -13,10 +13,10 @@ sources:
     address: 0.0.0.0:514   # newline-delimited, one message per line
 
 sinks:
-  backend:
+  ingest:
     type: http
     inputs: [syslog_udp, syslog_tcp]
-    uri: http://backend:8000/api/ingest/syslog
+    uri: http://ingest:8080/api/ingest/syslog
     method: post
     encoding:
       codec: json
@@ -27,7 +27,7 @@ sinks:
     request:
       headers:
         X-Ingest-Token: "${SYSLOG_INGEST_TOKEN}"
-    # Don't block startup on the backend endpoint; it's checked by real traffic instead.
+    # Don't block startup on the ingest endpoint; it's checked by real traffic instead.
     healthcheck:
       enabled: false
     batch:

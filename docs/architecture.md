@@ -1,14 +1,14 @@
 # Architecture
 
 A small multi-tenant log management (SIEM-lite) system. It ingests logs from seven kinds of
-sources, normalizes them into one schema, stores them in ClickHouse, and offers search, a
+sources, normalizes them into one schema (a Go service), stores them in ClickHouse, and offers search, a
 dashboard and alerts. PostgreSQL holds users, API keys, alerts and settings. Everything runs from
 one `docker-compose.yml`, either on a single VM (**appliance**) or on a public cloud VM with a real
 HTTPS domain (**SaaS**).
 
 ## Components
 
-![Architecture: log sources, the Docker Compose machine (Vector, Caddy, website, backend, ClickHouse, PostgreSQL) and outside services](architecture.png)
+![Architecture: log sources, the Docker Compose machine (Vector, Caddy, the Go ingest service, website, backend, ClickHouse, PostgreSQL) and outside services](architecture.png)
 
 The same picture as a text diagram (renders on GitHub):
 
@@ -23,7 +23,8 @@ flowchart LR
     subgraph Docker host
         V[Vector<br/>:514 udp/tcp]
         C[Caddy<br/>:443 / :80<br/>TLS + routing]
-        B[Backend<br/>FastAPI]
+        I[Ingest<br/>Go]
+        B[Backend<br/>Python FastAPI]
         W[[alert worker<br/>every 60 s]]
         R[[retention<br/>hourly]]
         F[Frontend<br/>React static files]
@@ -35,10 +36,13 @@ flowchart LR
     APP -->|"HTTPS + X-API-Key"| C
     FILE -->|"HTTPS upload + X-API-Key"| C
     FW -->|syslog| V
-    V -->|"HTTP + X-Ingest-Token<br/>(Docker network only)"| B
-    C -->|/api/*, /health| B
+    V -->|"HTTP + X-Ingest-Token<br/>(Docker network only)"| I
+    C -->|/ingest, /api/ingest/*| I
+    C -->|other /api/*, /health| B
     C -->|everything else| F
-    B -->|logs| CH
+    I -->|write logs| CH
+    I -->|check API keys| P
+    B -->|read logs| CH
     B -->|accounts, alerts| P
     W --- B
     R --- B
@@ -47,9 +51,10 @@ flowchart LR
 
 | Component | Job | Why this choice |
 |-----------|-----|-----------------|
-| **Caddy** | The only public entry point. Terminates TLS and routes `/api/*` and `/health` to the backend, everything else to the frontend. Blocks `/api/ingest/syslog` from outside. | Automatic HTTPS: Let's Encrypt in SaaS mode, its own local CA in appliance mode, from one Caddyfile. |
-| **Vector** | Listens for syslog on 514 and forwards raw lines plus the sender IP to the backend in batches; retries if the backend is down. | Handles the network side (UDP/TCP, batching, retries) so the backend only gets HTTP. Parsing stays in Python, where it is unit-tested. |
-| **Backend** | FastAPI app: ingest, normalizers, login, search, stats, alerts API. Two background tasks: the alert worker and retention. | Async Python, Pydantic validation, interactive API docs at `https://<host>/docs` for free. Background tasks run in-process: no extra queue or container for two periodic jobs. |
+| **Caddy** | The only public entry point. Terminates TLS and routes `/ingest` and `/api/ingest/*` to the ingest service, other `/api/*` and `/health` to the backend, everything else to the frontend. Blocks `/api/ingest/syslog` from outside. | Automatic HTTPS: Let's Encrypt in SaaS mode, its own local CA in appliance mode, from one Caddyfile. |
+| **Vector** | Listens for syslog on 514 and forwards raw lines plus the sender IP to the ingest service in batches; retries if it's down. | Handles the network side (UDP/TCP, batching, retries) so the ingest service only gets HTTP. Parsing stays in Go, where it is unit-tested. |
+| **Ingest** (Go) | Receives every log (JSON, file uploads, syslog), checks the API key, normalizes it, adds the country, skips duplicates and stores it in ClickHouse. | The one part that handles every log, so it's written in Go: many requests per CPU core, little memory, one ~30 MB binary. See **Why two languages**. |
+| **Backend** (Python) | FastAPI app: login, search, stats, alerts, API keys and rules. Two background tasks: the alert worker and retention. | Async Python, Pydantic validation, interactive API docs at `https://<host>/docs` for free. Background tasks run in-process: no extra queue or container for two periodic jobs. |
 | **ClickHouse** | The events (logs): ingest, search, dashboard, alert detection, retention. | A column store: reads only the columns a query needs, compresses repeated values, and drops a whole day at once. See **Storage**. |
 | **PostgreSQL 16** | Users, API keys, alerts, rule settings, sign-in failures. | Small data that is edited often and needs unique constraints and transactions. |
 | **Frontend** | React + Vite + TypeScript SPA (dashboard, search, alerts), built to static files. | Served by a tiny internal Caddy; no Node at runtime. |
@@ -57,6 +62,8 @@ flowchart LR
 All images are multi-arch (linux/amd64 and linux/arm64).
 
 ## Data flow of one event
+
+Steps 1–6 happen in the Go ingest service (`ingest/`), 7–8 in the Python backend.
 
 1. **Arrives**:
    - syslog: device → Vector → `POST /api/ingest/syslog` (internal token);
@@ -66,20 +73,33 @@ All images are multi-arch (linux/amd64 and linux/arm64).
    otherwise `DEFAULT_TENANT`). A `tenant` field in the body is never trusted: if it names a
    different tenant than the key's, that event is rejected (so a mislabelled sample can't land in the
    wrong tenant).
-3. **Normalized**: `backend/app/normalizers/<source>.py` maps the payload to the common schema
-   (`Event`, a Pydantic model that rejects bad values). The original payload is kept in `raw`.
+3. **Normalized**: `ingest/normalize/<source>.go` maps the payload to the common schema
+   (`Event`, whose `Validate()` rejects impossible values). The original payload is kept in `raw`.
 4. **Checked**: events older than `RETENTION_DAYS` (or more than a day ahead) are stored at the
    time they arrive and tagged `time_adjusted`; the original time stays in `raw`. Events that can't
    be read are rejected with a reason, and never block the good ones in the same batch.
 5. **Enriched**: the country of `src_ip` is looked up in the DB-IP Lite database
-   (`app/geoip.py`, downloaded when the image is built, read locally) and stored as `src_country`.
+   (`ingest/geoip`, downloaded when the image is built, read locally) and stored as `src_country`.
    Private and reserved addresses have no country.
-6. **Stored** in ClickHouse. The app computes a `fingerprint` (sha256 of tenant + source + raw)
+6. **Stored** in ClickHouse. The service computes a `fingerprint` (sha256 of tenant + source + raw)
    and skips events whose fingerprint and time are already stored, so duplicates are counted, not
    stored. If ClickHouse is down, ingest answers 503 and the sender retries.
 7. **Detected**: the alert worker picks up matching events that arrived in the last 10 minutes and
    checks their event-time history against each rule (e.g. 5+ failed logins from one IP in any 5 minutes).
 8. **Expired**: the retention job drops whole days older than `RETENTION_DAYS`.
+
+## Why two languages
+
+| Part | Language | Why |
+|---|---|---|
+| Ingest (every log passes through it) | **Go** | It's the busy path: its speed decides how many logs one server can take. Go serves many requests per CPU core with little memory, and ships as one small binary. |
+| Backend (login, search, dashboard, alerts) | **Python** | Few requests, mostly business rules. Python + FastAPI is quick to write and test, and its interactive API docs come for free. |
+
+The heavy lifting elsewhere is already in compiled tools: Vector (Rust) receives syslog, Caddy
+(Go) terminates TLS, and ClickHouse (C++) stores and summarizes the logs. Real log platforms
+split work the same way: a fast language on the path every log takes, and whatever the team
+builds fastest in for the rest. If ingest traffic grows further, the next steps are more copies
+of the ingest service behind Caddy, then a queue (e.g. Kafka) in front of it.
 
 ## Storage
 

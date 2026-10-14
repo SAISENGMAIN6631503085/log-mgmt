@@ -6,14 +6,11 @@ from datetime import datetime, timedelta, timezone
 
 import asyncpg
 import pytest
-from pydantic import ValidationError
 
-from app import ch_events
 from app.clickhouse import ch
 from app.config import settings
 from app.migrate import run_migrations
-from app.normalizers.common import Event
-from conftest import _CH_CLEANUP
+from conftest import _CH_CLEANUP, Event, store_events
 
 
 async def _connect():
@@ -66,9 +63,10 @@ def tenant():
 
 def _partition_of(tenant: str, ts: datetime) -> str:
     """Store one event at `ts`, return the id of the day partition it landed in."""
+    store_events([Event(ts=ts, tenant=tenant, source="firewall", raw={"at": ts.isoformat()})])
+
     async def body():
         try:
-            await ch_events.insert_events([Event(ts=ts, tenant=tenant, source="firewall", raw={"at": ts.isoformat()})])
             rows = await ch.query("SELECT _partition_id AS p FROM events WHERE tenant = {t:String} "
                                   "AND ts = {ts:DateTime64(3, 'UTC')}", {"t": tenant, "ts": ts})
             return rows[0]["p"]
@@ -88,8 +86,3 @@ def test_partition_boundaries_are_utc_days(tenant):
     before = midnight - timedelta(milliseconds=1)  # ClickHouse keeps milliseconds
     assert _partition_of(tenant, before) == f"{before:%Y%m%d}"
 
-
-def test_unknown_source_is_rejected():
-    # The schema's source list is enforced when an event is built, before anything is stored.
-    with pytest.raises(ValidationError):
-        Event(ts=datetime.now(timezone.utc), tenant="t-test", source="mainframe", raw={})

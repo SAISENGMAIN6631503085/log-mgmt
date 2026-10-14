@@ -2,7 +2,7 @@
 
 Realistic example logs for each source. They are modeled on each product's real format,
 but the data is synthetic and uses documentation IP ranges (192.0.2.0/24, 198.51.100.0/24,
-203.0.113.0/24). The normalizer tests read these files, so they double as test fixtures.
+203.0.113.0/24). The normalizer tests (Go, in `ingest/normalize`) read these files, so they double as test fixtures.
 
 | File | Source | Format |
 |------|--------|--------|

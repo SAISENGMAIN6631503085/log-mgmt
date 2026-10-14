@@ -5,22 +5,30 @@
 
 	encode gzip
 
-	# Internal endpoint for Vector only (it talks to backend:8000 directly on the Docker
+	# Internal endpoint for Vector only (it talks to ingest:8080 directly on the Docker
 	# network). Refuse it from outside so nobody can inject syslog into any tenant.
 	# (A handle block, not a bare `respond`: Caddy runs `handle` before `respond`, so a bare
-	# respond would never be reached for paths the backend handle below also matches.)
+	# respond would never be reached for paths the handles below also match.)
 	@internal path /api/ingest/syslog
 	handle @internal {
 		respond 404
 	}
 
-	# Upload limit (matches MAX_UPLOAD_BYTES in the backend, plus multipart overhead).
+	# Upload limit (matches MaxUploadBytes in the ingest service, plus multipart overhead).
 	request_body {
 		max_size 55MB
 	}
 
-	# Backend owns /api/*, /health and the interactive API docs; everything else is the React SPA.
-	@backend path /api/* /ingest /health /docs /openapi.json
+	# Logs coming in go to the Go ingest service. Handles with named matchers are tried in the
+	# order written, so this one must stay above the /api/* handle below.
+	@ingest path /ingest /api/ingest /api/ingest/*
+	handle @ingest {
+		reverse_proxy ingest:8080
+	}
+
+	# The Python backend owns the rest of /api/*, /health and the interactive API docs;
+	# everything else is the React SPA.
+	@backend path /api/* /health /docs /openapi.json
 	handle @backend {
 		reverse_proxy backend:8000
 	}

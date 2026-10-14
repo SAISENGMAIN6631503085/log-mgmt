@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from .. import ch_stats, db, geoip
 from ..auth import Claims, current_user, require_admin, scoped_tenant
 from ..config import settings
-from ..normalizers.common import Source
+from ..schema import Source
 
 router = APIRouter(prefix="/api", tags=["stats"])
 

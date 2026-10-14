@@ -1,4 +1,6 @@
-"""Ingestion endpoints end to end against the real databases (skipped if they aren't running).
+"""Ingestion end to end: logs go to the running Go ingest service over HTTP and are checked in
+ClickHouse (skipped if the services aren't running). The service's own Go tests cover what needs
+a different configuration (batch limit, syslog tenant map, no syslog token).
 
 Each test uses a fresh random tenant and deletes its rows afterwards, so tests don't see
 each other's data or leave anything in the dev database.
@@ -8,15 +10,12 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import asyncpg
+import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from app.api_keys import create_key
 from app.config import settings
-from app.main import app
-from conftest import count_events, delete_events
-from app.normalizers.syslog import parse_tenant_map
-from app.routers import ingest
+from conftest import count_events, delete_events, ingest_client
 
 
 def _db(coro_fn):
@@ -39,7 +38,11 @@ def env():
     tenant_a, tenant_b = f"t_{uuid.uuid4().hex[:8]}", f"t_{uuid.uuid4().hex[:8]}"
     key_a = _db(lambda c: create_key(c, tenant_a, "test"))
     key_b = _db(lambda c: create_key(c, tenant_b, "test"))
-    with TestClient(app) as client:
+    with ingest_client() as client:
+        try:
+            client.get("/health")
+        except httpx.HTTPError:
+            pytest.skip("ingest service not reachable; run `make up` first")
         yield client, tenant_a, key_a, tenant_b, key_b
 
     async def cleanup(c):
@@ -123,13 +126,6 @@ def test_unknown_source_is_400(env):
     assert client.post("/api/ingest?source=nope", json={}, headers={"X-API-Key": key}).status_code == 400
 
 
-def test_too_many_events_is_413(env, monkeypatch):
-    client, _, key, *_ = env
-    monkeypatch.setattr(ingest, "MAX_EVENTS_PER_REQUEST", 2)
-    r = client.post("/api/ingest", json=[{"timestamp": now_iso()}] * 3, headers={"X-API-Key": key})
-    assert r.status_code == 413
-
-
 def test_file_upload_csv(env):
     client, tenant, key, *_ = env
     t = now_iso()
@@ -153,6 +149,8 @@ def test_file_upload_needs_key(env):
 
 
 def _bearer(role: str, tenant: str) -> dict:
+    # Made with the backend's own login code: the website signs in with the Python backend and
+    # uploads to the Go service, so these tests also check both use the same JWT_SECRET and claims.
     from app.auth import Claims, create_token
     return {"Authorization": f"Bearer {create_token(Claims(sub='x', role=role, tenant=tenant))}"}
 
@@ -187,31 +185,9 @@ def _syslog_line(text: str) -> str:
     return f"<132>{datetime.now(timezone.utc):%b %d %H:%M:%S} {text}"
 
 
-def test_syslog_requires_token(env, monkeypatch):
+def test_syslog_requires_token(env):
     client, *_ = env
-    monkeypatch.setattr(settings, "syslog_ingest_token", "secret")
     rec = [{"message": _syslog_line("fw action=deny src=1.2.3.4"), "host": "10.0.0.1"}]
     assert client.post("/api/ingest/syslog", json=rec).status_code == 401
     assert client.post("/api/ingest/syslog", json=rec, headers={"X-Ingest-Token": "wrong"}).status_code == 401
 
-
-def test_syslog_refused_when_no_token_configured(env, monkeypatch):
-    # Fail closed: an empty token in config must not mean "no auth".
-    client, *_ = env
-    monkeypatch.setattr(settings, "syslog_ingest_token", "")
-    r = client.post("/api/ingest/syslog", json=[], headers={"X-Ingest-Token": ""})
-    assert r.status_code == 401
-
-
-def test_syslog_tenant_by_sender_and_classification(env, monkeypatch):
-    client, tenant_a, _, tenant_b, _ = env
-    monkeypatch.setattr(settings, "syslog_ingest_token", "secret")
-    monkeypatch.setattr(ingest, "_TENANT_MAP", parse_tenant_map(f"10.1.0.0/16={tenant_a},10.2.0.0/16={tenant_b}"))
-    recs = [
-        {"message": _syslog_line("fw01 action=deny src=203.0.113.4 dst=10.1.0.5") + "\n", "host": "10.1.0.9"},
-        {"message": _syslog_line("sw01 %LINK-3-UPDOWN: event_type=link_down"), "host": "10.2.3.4"},
-    ]
-    body = client.post("/api/ingest/syslog", json=recs, headers={"X-Ingest-Token": "secret"}).json()
-    assert body["accepted"] == 2
-    assert count(tenant_a, source="firewall") == 1
-    assert count(tenant_b, source="network") == 1

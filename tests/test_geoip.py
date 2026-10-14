@@ -8,11 +8,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import geoip
-from app.api_keys import create_key
 from app.auth import Claims, create_token
 from app.config import settings
 from app.main import app
-from conftest import delete_events
+from conftest import Event, delete_events, store_events
 
 
 class FakeReader:
@@ -56,7 +55,9 @@ def test_missing_database_turns_enrichment_off(monkeypatch):
         geoip.country.cache_clear()
 
 
-# --- end to end: ingest -> stored -> search -> stats ---------------------------------
+# --- stored country -> search -> stats ------------------------------------------------
+# Adding the country at ingest is the Go service's job (ingest/server: TestCountryIsAddedAtIngest).
+# Here: events stored with a country, as the service stores them, are searchable and counted.
 
 def _db(fn):
     async def run():
@@ -75,24 +76,25 @@ def env(fake_db):
     except (OSError, asyncpg.PostgresError, asyncio.TimeoutError):
         pytest.skip("Postgres not reachable; run `make up` first")
     tenant = f"geo_{uuid.uuid4().hex[:8]}"
-    key = _db(lambda c: create_key(c, tenant, "test"))
     with TestClient(app) as client:
-        yield client, tenant, key
+        yield client, tenant
 
     async def cleanup(c):
-        for table in ("api_keys", "alerts"):
-            await c.execute(f"DELETE FROM {table} WHERE tenant = $1", tenant)
+        await c.execute("DELETE FROM alerts WHERE tenant = $1", tenant)
     _db(cleanup)
     delete_events([tenant])
 
 
 def test_country_is_stored_searchable_and_counted(env):
-    client, tenant, key = env
-    now = datetime.now(timezone.utc).isoformat()
-    events = [{"timestamp": now, "event_type": "login_failed", "ip": "1.46.10.5", "user": "a"},
-              {"timestamp": now, "event_type": "login_failed", "ip": "1.46.10.5", "user": "b"},
-              {"timestamp": now, "event_type": "login_success", "ip": "10.0.1.10", "user": "c"}]
-    assert client.post("/api/ingest", json=events, headers={"X-API-Key": key}).json()["accepted"] == 3
+    client, tenant = env
+    now = datetime.now(timezone.utc)
+    store_events([
+        Event(ts=now, tenant=tenant, source="api", event_type="login_failed", src_ip="1.46.10.5", src_country="TH",
+              user="a", tags=["auth_failure"], raw={"u": "a"}),
+        Event(ts=now, tenant=tenant, source="api", event_type="login_failed", src_ip="1.46.10.5", src_country="TH",
+              user="b", tags=["auth_failure"], raw={"u": "b"}),
+        Event(ts=now, tenant=tenant, source="api", event_type="login_success", src_ip="10.0.1.10", user="c", raw={"u": "c"}),
+    ])
 
     auth = {"Authorization": f"Bearer {create_token(Claims(sub='x', role='viewer', tenant=tenant))}"}
     found = client.get("/api/events", params={"country": "th"}, headers=auth).json()["events"]
@@ -103,7 +105,7 @@ def test_country_is_stored_searchable_and_counted(env):
 
 
 def test_info_reports_demo_data_and_geoip(env, monkeypatch):
-    client, tenant, _ = env
+    client, tenant = env
     auth = {"Authorization": f"Bearer {create_token(Claims(sub='x', role='viewer', tenant=tenant))}"}
     monkeypatch.setattr(settings, "compose_profiles", "demo")
     assert client.get("/api/info", headers=auth).json() == {"demo_data": True, "geoip": True}

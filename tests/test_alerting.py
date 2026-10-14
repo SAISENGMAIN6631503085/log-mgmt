@@ -20,8 +20,7 @@ from app.alerting import merge_bursts, run_once
 from app.auth import Claims, create_token
 from app.config import settings
 from app.main import app
-from app.normalizers.common import Event
-from conftest import delete_events, store_events
+from conftest import Event, delete_events, store_events
 
 T0 = datetime(2026, 10, 12, 10, 0, tzinfo=timezone.utc)
 

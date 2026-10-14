@@ -1,5 +1,9 @@
 # Backend (FastAPI)
 
+Login, search, the dashboard, alerts, API keys and retention. Logs are **received** by the Go
+ingest service (`/ingest`, see [ingest/README.md](../ingest/README.md)), which writes them to
+ClickHouse; this backend reads them.
+
 - `app/main.py` – app + `/health` (returns 503 if Postgres or ClickHouse is unreachable)
 - `app/config.py` – settings from env vars (documented in `/.env.example`)
 - `app/db.py` – asyncpg connection pool
@@ -40,56 +44,29 @@ Events were in a day-partitioned Postgres table until migration 007 moved them t
 - Ids are time-ordered and kept under 2^53, so browsers (JSON numbers are doubles) show them exactly.
 - Queries go over ClickHouse's HTTP interface with `httpx`; values are always typed parameters
   (`{tenant:String}`), never pasted into SQL.
-- Memory is capped in `clickhouse/config.d/small-server.xml` (650 MB for the server, 400 MB per
-  query) and tuned with ClickHouse's low-memory settings: small background pools, one thread per
+- Memory is capped in `clickhouse/config.d/small-server.xml` (900 MB for the server, of which
+  ~240 MB is ClickHouse's own program code; 400 MB per query) and tuned with ClickHouse's low-memory settings: small background pools, one thread per
   query, no parallel parsing. Measured: about 250–350 MB idle and under 400 MB during the whole test
   suite, so it fits a 2 GB VM. On a bigger appliance, raise the limits or delete that file.
 
 The schema field `user` is stored as the column `username`, because `USER` is a reserved word in
 SQL; `_tags` is stored as `tags`.
 
-- `app/routers/ingest.py` – ingestion endpoints (below)
 - `app/auth.py` + `app/routers/auth.py` – login, JWT, tenant scoping
 - `app/routers/events.py` – event search and single event (tenant-scoped)
 - `app/search.py` – builds the ClickHouse search query (pure, unit-tested)
 - `app/ch_stats.py` – the dashboard numbers, from ClickHouse
 - `app/alerting.py` + `app/routers/alerts.py` – alert worker and alerts API
 - `app/retention.py` – drops old days of events (hourly, and `make retention`)
-- `app/api_keys.py` – per-tenant `X-API-Key` auth (keys stored as SHA-256)
-- `app/events_store.py` + `app/ch_events.py` – storing events in ClickHouse (dedup, ids), timestamp window check
+- `app/api_keys.py` + `app/routers/keys.py` – per-tenant ingest keys (stored as SHA-256), created and revoked here
+- `app/schema.py` – allowed sources and actions, for validating filters
 - `app/clickhouse.py` – the small ClickHouse HTTP client
 
 Tests live in `/tests` at the repo root; run them with `make test`.
 
-## Normalizers (`app/normalizers/`)
-Each source has one pure function, `normalize(payload, tenant) -> Event`, that maps it to the
-common schema. It does no DB or network I/O, so each one is unit-tested against `/samples`.
-`Event` (`common.py`) is a Pydantic model, so a mapping bug such as severity 42 or a bad IP fails loudly.
-
-| Source | Input | Notes |
-|--------|-------|-------|
-| `firewall` | syslog line, key=value | accept/permit/pass → `allow`; deny/drop/block/reject → `deny` |
-| `network` | syslog line | `event_type` falls back to the program tag (e.g. `%LINK-3-UPDOWN`) |
-| `api` | JSON object | auth-related `*_failed` → `login` + `auth_failure`; tenant in body ignored |
-| `crowdstrike` | Falcon DetectionSummaryEvent | severity 1–5 ×2; quarantined → `quarantine`, else `alert` |
-| `aws` | CloudTrail record (`iter_records` unwraps `{"Records": [...]}`) | failed ConsoleLogin → `auth_failure`; Root → `root_activity` |
-| `m365` | Management Activity audit record | failed status → `login` + `auth_failure`; forwarding inbox rule flagged |
-| `ad` | Windows Security event (CSV row/JSON) | 4625 → `login` + `auth_failure`; 4624/4634/4720/4726/4740 mapped |
-
-Shared rules:
-- `unify_aliases` renames `ip`/`src` → `src_ip`, `dst` → `dst_ip`, `spt`/`dpt` → ports, and `proto` → `protocol`.
-- `clean_ip` turns hostnames, `-` and `ip:port` into a clean IP or `None`.
-- `parse_ts` treats timestamps without a time zone as UTC.
-
-Syslog (`syslog.py`):
-- `<PRI> % 8` maps to severity 10/9/8/7/5/3/2/0.
-- Timestamps without a year use the current year in UTC. A line more than one day "in the future"
-  is moved to the previous year, which handles a Dec 31 line arriving on Jan 1.
-- The tenant comes from the sender IP via `SYSLOG_TENANT_MAP`, else `DEFAULT_TENANT`.
-
 ## How each feature uses ClickHouse
-- **Ingest** stores each batch in ClickHouse (`app/ch_events.py`). If ClickHouse is down, ingest
-  answers 503 and stores nothing, so the sender retries (Vector keeps a buffer and retries itself).
+- **Ingest** is the Go service: it stores each batch in ClickHouse, skipping duplicates
+  (see `ingest/README.md`). The backend creates the tables at startup (`app/ch_schema.py`).
 - **Dashboard** (`/api/stats`, `app/ch_stats.py`): counts, timeline and breakdowns read
   `events_minutely`, so they cost the same at any volume (precision: one minute). Top lists read
   the events table. The response says which engine answered and how long it took (`engine`),
@@ -99,49 +76,18 @@ Syslog (`syslog.py`):
   (`RANGE BETWEEN <window> PRECEDING`). Per-tenant rule settings are in Postgres and applied in Python.
 - **Retention** drops whole days (`ALTER TABLE … DROP PARTITION`), see below.
 
-Tests store events through the app's own write path (`store_events` in `tests/conftest.py`).
-Their ClickHouse data is deleted in one statement at the end of the run: a ClickHouse `DELETE`
+Tests of search, the dashboard and alerts write their events straight into ClickHouse
+(`store_events` in `tests/conftest.py`); tests of ingest send logs to the Go service. Their ClickHouse data is deleted in one statement at the end of the run: a ClickHouse `DELETE`
 rewrites files in the background, and one per test piled up.
 
-## Enrichment: country of the source IP (`app/geoip.py`)
-After normalizing, ingest looks up the country of `src_ip` and stores it as `src_country`
-(two-letter code, migration 005). It's then a search filter (`?country=TH`), a dashboard table
-(top countries) and part of each IP-based alert.
+## Country of an IP (`app/geoip.py`)
+Countries are added to events at ingest (Go service). The backend also reads the same DB-IP Lite
+file (`fetch_geoip.py` downloads it at build time) to label the IP in each alert and to tell the
+website whether country data is available (`/api/info`).
 
-- Data: DB-IP "IP to Country Lite", free under CC BY 4.0. The website links to db-ip.com, as the licence requires.
-- `fetch_geoip.py` downloads it while the image is built (this month's file, or last month's).
-  Lookups read the local file, so no log data leaves the server. Refresh it with
-  `docker compose build --no-cache backend`.
-- Private and reserved addresses (10.x, 192.168.x, and the documentation ranges used in the
-  assignment samples) have no country. Without the file, enrichment is off and nothing else changes.
-
-## Ingestion endpoints
-All three normalize events, store the valid ones, and report the rest:
-`{"accepted": n, "duplicates": d, "rejected_count": m, "rejected": [{"index": i, "error": "..."}]}`.
-One bad event never blocks the rest of the batch.
-
-**Duplicates** (`app/ch_events.py`): an event already stored is counted in `duplicates` and not stored again.
-Re-uploading a file or Vector retrying a batch is therefore safe.
-- `fingerprint = sha256(json([tenant, source, raw]) with sorted keys)`, so it is the same however
-  the JSON was formatted. The app always computes it, so a caller can't supply or forge one.
-- A duplicate is the same fingerprint **at the same time** (`ts`), so identical content at a
-  different time is a different event.
-- ClickHouse has no unique constraint, so the app checks which (fingerprint, ts) pairs already
-  exist before inserting; counts are right at once. `ReplacingMergeTree` with the same key also
-  removes any repeat that slips through (two inserts at the same moment) when it merges.
-- The same event sent by two tenants is stored for both.
-- Events with no timestamp get the receipt time, so they are never treated as duplicates. Two
-  such sends are kept, rather than risk dropping real repeated events.
-- Trade-off: two genuinely separate events with byte-identical payloads *and* identical
-  timestamps are stored once. Real sources include unique IDs or ports (CloudTrail `eventID`,
-  M365 `Id`, AD `IpPort`), so this mostly affects hand-made test data.
-
-| Endpoint | Auth | Body |
-|----------|------|------|
-| `POST /api/ingest` (alias `POST /ingest`) | `X-API-Key` | one JSON event or an array. The normalizer comes from `?source=`, else each event's own `"source"` field, else `api`. A `{"Records": [...]}` body is CloudTrail. |
-| `POST /api/ingest/file` | `X-API-Key` | multipart: `source` + `file` (.json, .ndjson/.jsonl, .csv, .log/.txt), max 50 MB |
-| `POST /api/ingest/upload` | login token, **admin** | the same upload for the website's **Add logs** page. The tenant is the one being viewed (`?tenant=`, same rule as every read endpoint); viewers get 403 because they're read-only. |
-| `POST /api/ingest/syslog` | `X-Ingest-Token` | internal, Vector only; blocked by Caddy from outside |
+## API keys
+Logs are sent to the Go ingest service with a per-tenant `X-API-Key` (endpoints and rules in
+`ingest/README.md`). The keys themselves live in Postgres and are managed here.
 
 API keys are managed by admins, per tenant (`?tenant=`, same rule as every read endpoint):
 
@@ -151,25 +97,7 @@ API keys are managed by admins, per tenant (`?tenant=`, same rule as every read 
 | `POST /api/keys` `{"name": "shop website"}` | Create a key. The full key is in this response **only**; it's stored as a SHA-256 hash. |
 | `POST /api/keys/{id}/revoke` | Revoke it: it stops working at once. The row stays (audit trail). Another tenant's key → 404. |
 
-Rules:
-- **The tenant always comes from the API key** (or, for syslog, from the sender IP). An event whose own
-  `tenant` field names a *different* tenant is **rejected** with a clear message. It is not silently
-  re-labelled, so a wrong key or a cross-tenant write attempt is visible.
-- Each normalizer accepts the vendor's real format (CloudTrail, M365 Management API, Falcon, Windows
-  event export) **and** the flat format used in the assignment's samples (`@timestamp`, `event_type`, `user`, `ip`, `cloud: {...}`).
-- At most 10,000 events per request; above that the request gets 413.
-- Events older than `RETENTION_DAYS` or more than 1 day in the future are **stored at the receipt time,
-  tagged `time_adjusted`**, and keep their original timestamp in `raw`. The response counts them in
-  `time_adjusted`. Storing them at their real (old) time would get them deleted by retention within
-  the hour, and rejecting them would drop real activity from devices with a wrong clock or from old sample files.
-- Demo keys come from `SEED_API_KEYS` and are created by `make seed`.
-
-```
-curl -k https://localhost/api/ingest -H "X-API-Key: lm_demoA_dev_key_change_me" \
-     -H "content-type: application/json" -d '{"event_type":"login_failed","user":"alice","ip":"203.0.113.7"}'
-curl -k https://localhost/api/ingest/file -H "X-API-Key: lm_demoA_dev_key_change_me" \
-     -F source=aws -F file=@samples/aws_cloudtrail.json
-```
+Demo keys come from `SEED_API_KEYS` and are created by `make seed`.
 
 ## Login and tenant isolation
 `POST /api/auth/login` takes `{"username", "password"}` and returns a JWT. Send it as
@@ -252,8 +180,8 @@ rule, because a SQL window frame's size can't vary per row.
 
 How it works:
 - **Event time, not clock time.** Each run takes the groups (IPs or computers) whose matching
-  events *arrived* in the last 10 minutes (indexed `ingested_at`, migration 002), then slides the
-  rule's window over their matching events by `ts` (SQL `count(*) OVER (... RANGE '5 min' PRECEDING)`).
+  events *arrived* in the last 10 minutes (`ingested_at`), then slides the rule's window over
+  their matching events by `ts` (ClickHouse `count() OVER (... RANGE BETWEEN <window> PRECEDING ...)`).
   Logs that arrive late, or come from an uploaded file, are still caught.
 - **De-duplication.** Overlapping windows are one attack. If an alert for the same
   (tenant, rule, group) ended less than one window before the new burst, the existing alert is
