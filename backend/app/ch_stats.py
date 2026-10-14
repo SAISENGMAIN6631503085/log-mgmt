@@ -58,7 +58,7 @@ async def compute(tenant: str, start: datetime, end: datetime, sources: list[str
                  "sum(low) AS low, sum(unknown) AS unknown, sum(auth_failures) AS auth_failures "
                  f"FROM events_minutely WHERE {_MIN_WHERE} GROUP BY t", {**p, "step": step}),
         ch.query("SELECT source, intDiv(toUnixTimestamp(minute), {step:UInt32}) * {step:UInt32} AS t, sum(n) AS n "
-                 f"FROM events_minutely WHERE {_MIN_WHERE} GROUP BY source, t HAVING n > 0", {**p, "step": step}),
+                 f"FROM events_minutely WHERE {_MIN_WHERE} GROUP BY source, t HAVING n > 0 ORDER BY source, t", {**p, "step": step}),
         ch.query(f"SELECT source AS key, sum(n) AS n FROM events_minutely WHERE {_MIN_WHERE} "
                  "GROUP BY key HAVING n > 0 ORDER BY n DESC, key", p),
         ch.query("SELECT sum(critical) AS critical, sum(high) AS high, sum(medium) AS medium, "

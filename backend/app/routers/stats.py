@@ -100,11 +100,11 @@ async def _postgres_stats(tenant: str, start: datetime, end: datetime, source: l
         source_timeline = await conn.fetch(
             """SELECT source, date_bin($5::interval, ts, 'epoch') AS t, count(*) AS n
                FROM events WHERE tenant = $1 AND ts >= $2 AND ts < $3 AND ($4::text[] IS NULL OR source = ANY($4))
-               GROUP BY 1, 2""", *scope, bucket)
+               GROUP BY 1, 2 ORDER BY 1, 2""", *scope, bucket)
         by_source = await conn.fetch(
             """SELECT source AS key, count(*) AS n FROM events
                WHERE tenant = $1 AND ts >= $2 AND ts < $3 AND ($4::text[] IS NULL OR source = ANY($4))
-               GROUP BY source ORDER BY n DESC""", *scope)
+               GROUP BY source ORDER BY n DESC, key""", *scope)
         by_severity = await conn.fetch(
             """SELECT CASE WHEN severity >= 9 THEN 'critical' WHEN severity >= 7 THEN 'high'
                            WHEN severity >= 4 THEN 'medium' WHEN severity IS NOT NULL THEN 'low'
@@ -114,24 +114,24 @@ async def _postgres_stats(tenant: str, start: datetime, end: datetime, source: l
             """SELECT host(src_ip) AS key, count(*) AS n, max(src_country) AS country,
                       count(*) FILTER (WHERE _tags @> '{auth_failure}') AS auth_failures
                FROM events WHERE tenant = $1 AND ts >= $2 AND ts < $3 AND ($4::text[] IS NULL OR source = ANY($4)) AND src_ip IS NOT NULL
-               GROUP BY src_ip ORDER BY n DESC LIMIT 10""", *scope)
+               GROUP BY src_ip ORDER BY n DESC, key LIMIT 10""", *scope)
         top_users = await conn.fetch(
             """SELECT username AS key, count(*) AS n,
                       count(*) FILTER (WHERE _tags @> '{auth_failure}') AS auth_failures
                FROM events WHERE tenant = $1 AND ts >= $2 AND ts < $3 AND ($4::text[] IS NULL OR source = ANY($4))
                  AND username IS NOT NULL
-               GROUP BY username ORDER BY n DESC LIMIT 10""", *scope)
+               GROUP BY username ORDER BY n DESC, key LIMIT 10""", *scope)
         top_countries = await conn.fetch(
             """SELECT src_country AS key, count(*) AS n,
                       count(*) FILTER (WHERE _tags @> '{auth_failure}') AS auth_failures
                FROM events WHERE tenant = $1 AND ts >= $2 AND ts < $3 AND ($4::text[] IS NULL OR source = ANY($4))
                  AND src_country IS NOT NULL
-               GROUP BY src_country ORDER BY n DESC LIMIT 10""", *scope)
+               GROUP BY src_country ORDER BY n DESC, key LIMIT 10""", *scope)
         top_event_types = await conn.fetch(
             """SELECT event_type AS key, count(*) AS n FROM events
                WHERE tenant = $1 AND ts >= $2 AND ts < $3 AND ($4::text[] IS NULL OR source = ANY($4))
                  AND event_type IS NOT NULL
-               GROUP BY event_type ORDER BY n DESC LIMIT 10""", *scope)
+               GROUP BY event_type ORDER BY n DESC, key LIMIT 10""", *scope)
 
     severity_order = ["critical", "high", "medium", "low", "unknown"]
     sev = {r["key"]: r["n"] for r in by_severity}

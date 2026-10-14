@@ -3,7 +3,12 @@
     <profiles>
         <default>
             <max_memory_usage>400000000</max_memory_usage>
-            <max_threads>2</max_threads>
+            <!-- One thread per query and no parallel parsing/formatting: each parallel worker
+                 allocates its own large buffers, which costs more than it saves on a small VM. -->
+            <max_threads>1</max_threads>
+            <max_insert_threads>1</max_insert_threads>
+            <input_format_parallel_parsing>0</input_format_parallel_parsing>
+            <output_format_parallel_formatting>0</output_format_parallel_formatting>
         </default>
     </profiles>
 </clickhouse>

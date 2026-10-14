@@ -86,7 +86,10 @@ checked before inserting (so counts are right at once) and is also the merge key
 
 Queries go over ClickHouse's HTTP interface with `httpx`; values are always typed parameters
 (`{tenant:String}`), never pasted into SQL. Memory is capped in `clickhouse/config.d/small-server.xml`
-(about 650 MB for the server, 400 MB per query; it idles around 200 MB) so it fits a 2 GB VM.
+(650 MB for the server, 400 MB per query) and tuned with ClickHouse's low-memory settings: small
+background pools, one thread per query, no parallel parsing. Measured: about 250–350 MB idle and
+under 400 MB during the whole test suite, so it fits a 2 GB VM. On a bigger appliance, raise the
+limits or delete that file.
 
 ## Enrichment: country of the source IP (`app/geoip.py`)
 After normalizing, ingest looks up the country of `src_ip` and stores it as `src_country`

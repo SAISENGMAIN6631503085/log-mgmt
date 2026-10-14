@@ -11,8 +11,15 @@ main() {
     cd "$(dirname "$0")/.."
 
     # --ff-only: never merge or overwrite local changes on the server; fail loudly instead.
+    before=$(git rev-parse HEAD)
     git pull --ff-only
     make up
+    # ClickHouse's settings are mounted files, so changing them doesn't recreate the container.
+    # Restart it only when they changed in this pull (a restart briefly pauses dashboards).
+    if ! git diff --quiet "$before" HEAD -- clickhouse/; then
+        docker compose restart clickhouse
+        docker compose up -d --wait clickhouse
+    fi
     # The simulator runs samples/simulator.py from a bind mount, so a changed script doesn't
     # recreate its container; restart it to pick up the new code. No-op without the demo profile.
     docker compose restart simulator >/dev/null 2>&1 || true

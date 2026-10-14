@@ -66,6 +66,16 @@ jobs:
           echo "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           # The key is locked to scripts/deploy.sh on the server (forced command), so the
           # command we send is ignored; it can't run anything else.
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes "root@$DEPLOY_HOST" deploy
+          # Internet bots constantly try SSH logins; when several are half-open at once, sshd's
+          # flood protection (MaxStartups) drops new connections, ours included. Exit code 255
+          # means "couldn't connect", so wait and retry; any other failure is the deploy itself
+          # failing, which must not be retried blindly.
+          for attempt in 1 2 3 4 5; do
+            ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o ConnectTimeout=20 "root@$DEPLOY_HOST" deploy && exit 0 || code=$?
+            if [ "$code" -ne 255 ]; then exit "$code"; fi
+            echo "SSH connection refused or dropped (attempt $attempt of 5); retrying in 20 s"
+            sleep 20
+          done
+          exit 255
       - name: Check the live site
         run: curl -fsS --retry 10 --retry-delay 3 --retry-all-errors https://14.207.143.101.sslip.io/health
