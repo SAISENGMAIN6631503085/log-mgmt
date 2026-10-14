@@ -7,6 +7,7 @@ so search input can't inject SQL. Same rule as the Postgres side.
 import asyncio
 import json
 import logging
+import weakref
 from datetime import datetime, timezone
 from typing import Any
 
@@ -37,34 +38,40 @@ def _quote(v: Any) -> str:
 
 class ClickHouse:
     def __init__(self) -> None:
-        self._http: httpx.AsyncClient | None = None
-        self._loop: asyncio.AbstractEventLoop | None = None
+        # One HTTP client per event loop: a client belongs to the loop that made it, and the app,
+        # scripts and tests can run several loops (even on several threads at once). Weak keys:
+        # a finished loop's entry goes away by itself.
+        self._clients: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, httpx.AsyncClient] = \
+            weakref.WeakKeyDictionary()
 
     @property
     def enabled(self) -> bool:
         return bool(settings.clickhouse_url)
 
+    def _client(self) -> httpx.AsyncClient:
+        """This event loop's client, created on first use."""
+        loop = asyncio.get_running_loop()
+        if loop not in self._clients:
+            self._clients[loop] = httpx.AsyncClient(
+                base_url=settings.clickhouse_url,
+                auth=(settings.clickhouse_user, settings.clickhouse_password),
+                params={"database": settings.clickhouse_db},
+                timeout=30,
+            )
+        return self._clients[loop]
+
     async def connect(self) -> None:
-        self._loop = asyncio.get_running_loop()
-        self._http = httpx.AsyncClient(
-            base_url=settings.clickhouse_url,
-            auth=(settings.clickhouse_user, settings.clickhouse_password),
-            params={"database": settings.clickhouse_db},
-            timeout=30,
-        )
+        self._client()
 
     async def close(self) -> None:
-        if self._http and self._loop is asyncio.get_running_loop():
-            await self._http.aclose()
-        self._http = None
+        """Close this event loop's client (others belong to other loops)."""
+        client = self._clients.pop(asyncio.get_running_loop(), None)
+        if client:
+            await client.aclose()
 
     async def _post(self, sql: str, params: dict[str, Any] | None, body: bytes | None = None, **settings_) -> str:
-        # Connect on first use, and again if the event loop changed: an HTTP client belongs to the
-        # loop that made it (scripts and tests run several loops one after another).
-        if self._http is None or self._loop is not asyncio.get_running_loop():
-            await self.connect()
         query = {"query": sql, **{f"param_{k}": _param(v) for k, v in (params or {}).items()}, **settings_}
-        r = await self._http.post("/", params=query, content=body)
+        r = await self._client().post("/", params=query, content=body)
         if r.status_code != 200:
             raise RuntimeError(f"ClickHouse error {r.status_code}: {r.text[:500]}")
         return r.text

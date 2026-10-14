@@ -48,7 +48,10 @@ async def main() -> None:
                 if not rows:
                     break
                 seen += len(rows)
-                copied += await ch_events.insert_events([_event(r) for r in rows])
+                # Keep the original arrival times, or the alert worker would see every copied
+                # event as new and alert on old activity again.
+                copied += await ch_events.insert_events([_event(r) for r in rows],
+                                                        [r["ingested_at"] for r in rows])
                 last = (rows[-1]["ts"], rows[-1]["id"])
     finally:
         await db.disconnect()

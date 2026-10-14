@@ -4,7 +4,7 @@ Integration tests need the compose ClickHouse (skipped if it isn't reachable); t
 """
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -130,3 +130,15 @@ def test_ingest_copies_into_clickhouse(tenant):
             finally:
                 await conn.close()
         asyncio.run(cleanup())
+
+
+def test_copied_events_keep_their_original_arrival_time(tenant):
+    """The backfill passes Postgres' ingested_at; without it, old events look newly arrived."""
+    # Recent times: rows older than RETENTION_DAYS can be dropped by the TTL during the test.
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    arrived = now - timedelta(hours=2)
+    e = Event(ts=now - timedelta(hours=3), tenant=tenant, source="api", raw={"k": 1})
+    assert _run(lambda: ch_events.insert_events([e], [arrived])) == 1
+    [row] = _run(lambda: ch.query("SELECT toString(ingested_at) AS at FROM events WHERE tenant = {t:String}",
+                                  {"t": tenant}))
+    assert row["at"] == arrived.strftime("%Y-%m-%d %H:%M:%S.000")

@@ -8,6 +8,7 @@ import hashlib
 import json
 import secrets
 import time
+from datetime import datetime
 
 from .clickhouse import _param, ch
 from .normalizers.common import Event
@@ -38,15 +39,21 @@ def new_id() -> int:
     return _last_id
 
 
-def _row(e: Event, fp: str) -> dict:
+def _row(e: Event, fp: str, ingested_at: datetime | None) -> dict:
     d = e.model_dump(exclude={"raw", "tags", "user"})
     d.update(id=new_id(), ts=e.ts.isoformat(), username=e.user, raw=json.dumps(e.raw, default=str),
              tags=e.tags, fingerprint=fp)
+    if ingested_at is not None:
+        d["ingested_at"] = ingested_at.isoformat()
     return d
 
 
-async def insert_events(events: list[Event]) -> int:
+async def insert_events(events: list[Event], ingested_at: list[datetime] | None = None) -> int:
     """Store the batch; returns how many were new.
+
+    `ingested_at` (one per event) keeps each event's original arrival time when copying old
+    events; otherwise it's now. It matters: the alert worker re-checks events that arrived
+    recently, so copied events stamped "now" would be treated as new and alert again.
 
     A duplicate is the same fingerprint at the same time, exactly like Postgres' unique
     (fingerprint, ts): the same log content at a different time (e.g. an old sample re-sent and
@@ -55,10 +62,11 @@ async def insert_events(events: list[Event]) -> int:
     """
     if not events:
         return 0
-    batch: dict[tuple[str, str], Event] = {}
-    for e in events:
-        batch.setdefault((fingerprint(e), _param(e.ts)), e)  # repeats inside one batch count once
-    tenants = sorted({e.tenant for e in batch.values()})
+    arrived = ingested_at or [None] * len(events)
+    batch: dict[tuple[str, str], tuple[Event, datetime | None]] = {}
+    for e, at in zip(events, arrived, strict=True):
+        batch.setdefault((fingerprint(e), _param(e.ts)), (e, at))  # repeats inside one batch count once
+    tenants = sorted({e.tenant for e, _ in batch.values()})
     fps = sorted({fp for fp, _ in batch})
     seen: set[tuple[str, str]] = set()
     # Parameters travel in the URL, so check in chunks: thousands of 64-character fingerprints
@@ -69,6 +77,6 @@ async def insert_events(events: list[Event]) -> int:
             "WHERE tenant IN {tenants:Array(String)} AND fingerprint IN {fps:Array(String)}",
             {"tenants": tenants, "fps": fps[i:i + CHECK_CHUNK]})
         seen.update((r["fingerprint"], r["ts"]) for r in rows)
-    rows = [_row(e, fp) for (fp, ts), e in batch.items() if (fp, ts) not in seen]
+    rows = [_row(e, fp, at) for (fp, ts), (e, at) in batch.items() if (fp, ts) not in seen]
     await ch.insert("events", rows)
     return len(rows)
