@@ -1,4 +1,6 @@
+import asyncio
 import json
+import logging
 
 import asyncpg
 
@@ -6,6 +8,8 @@ from .ch_schema import ensure_schema
 from .clickhouse import ch
 from .config import settings
 from .migrate import run_migrations
+
+log = logging.getLogger("db")
 
 # One pool per process, created at startup. A pool avoids paying connection setup per request.
 pool: asyncpg.Pool | None = None
@@ -37,9 +41,16 @@ async def _init_connection(conn: asyncpg.Connection) -> None:
     )
 
 
-async def disconnect() -> None:
+async def disconnect(timeout: float = 10) -> None:
+    """Close the pools. pool.close() waits until every connection is handed back; one left stuck
+    (e.g. a background job cancelled in the middle of a query) would make shutdown wait forever,
+    which hung CI test runs and would hang `docker stop`. So wait a while, then force-close."""
     if pool is not None:
-        await pool.close()
+        try:
+            await asyncio.wait_for(pool.close(), timeout)
+        except asyncio.TimeoutError:
+            log.warning("database pool didn't close within %ss; closing it forcibly", timeout)
+            pool.terminate()
     await ch.close()
 
 

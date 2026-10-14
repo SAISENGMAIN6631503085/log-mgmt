@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import logging
 from contextlib import asynccontextmanager
 
@@ -26,9 +25,8 @@ async def lifespan(app: FastAPI):
     yield
     for t in tasks:
         t.cancel()
-    for t in tasks:
-        with contextlib.suppress(asyncio.CancelledError):
-            await t
+    # Bounded wait: a stuck job must not block shutdown (the pool close below is bounded too).
+    await asyncio.wait(tasks, timeout=10)
     await db.disconnect()
 
 
