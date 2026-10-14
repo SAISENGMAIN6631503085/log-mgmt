@@ -1,12 +1,14 @@
-"""Builds the SQL for event search. Pure (no DB), so the query logic is unit-testable.
+"""Builds the ClickHouse SQL for event search. Pure (no DB), so the query logic is unit-testable.
 
-Every user value goes in as a $n parameter, never into the SQL text, so search input
-can't inject SQL. Column names only come from the fixed code below.
+Every user value is a typed parameter ({name:Type}), never pasted into the SQL text, so search
+input can't inject SQL. Column names only come from the fixed code below.
 """
 import base64
 import ipaddress
+import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Any
 
 
 @dataclass
@@ -48,55 +50,72 @@ def parse_ip_filter(value: str) -> str:
         raise ValueError(f"not an IP address or CIDR range: {value!r}") from None
 
 
-def _like_escape(text: str) -> str:
-    # So a search for "100%" matches the literal text instead of "100<anything>".
-    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+# Free-text search looks in these columns, case-insensitively. raw (the original log) catches
+# fields that aren't in the schema; the token index on raw lets ClickHouse skip blocks for words.
+_Q_COLUMNS = ["event_type", "username", "host", "url", "rule_name", "process", "raw"]
 
 
-# Columns searched by the free-text box. raw::text catches fields that aren't in the schema;
-# it's a sequential scan, but only within one tenant's time window (partition pruning + index).
-_Q_COLUMNS = ["event_type", "username", "host", "url", "rule_name", "process", "raw::text"]
-
-
-def build_search(tenant: str, f: SearchFilters) -> tuple[str, list]:
-    args: list = []
-
-    def p(value) -> str:
-        args.append(value)
-        return f"${len(args)}"
-
+def build_search(tenant: str, f: SearchFilters) -> tuple[str, dict[str, Any]]:
+    params: dict[str, Any] = {"tenant": tenant, "start": f.start, "end": f.end, "limit": f.limit + 1}
     # tenant is always the first condition and is never optional.
-    where = [f"tenant = {p(tenant)}", f"ts >= {p(f.start)}", f"ts < {p(f.end)}"]
+    where = ["tenant = {tenant:String}",
+             "ts >= {start:DateTime64(3, 'UTC')}", "ts < {end:DateTime64(3, 'UTC')}"]
     if f.sources:
-        where.append(f"source = ANY({p(f.sources)})")
+        where.append("source IN {sources:Array(String)}")
+        params["sources"] = f.sources
     if f.actions:
-        where.append(f"action = ANY({p(f.actions)})")
+        where.append("action IN {actions:Array(String)}")
+        params["actions"] = f.actions
     if f.severity_min is not None:
-        where.append(f"severity >= {p(f.severity_min)}")
-    if f.src_ip:
-        where.append(f"src_ip <<= {p(parse_ip_filter(f.src_ip))}::inet")  # <<= : "is inside network"
-    if f.dst_ip:
-        where.append(f"dst_ip <<= {p(parse_ip_filter(f.dst_ip))}::inet")
+        where.append("severity >= {severity_min:UInt8}")
+        params["severity_min"] = f.severity_min
+    for column, value in (("src_ip", f.src_ip), ("dst_ip", f.dst_ip)):
+        if value:
+            # "Is this address inside that network", for a single IP (/32) or a range like 10.0.0.0/8.
+            where.append(f"{column} IS NOT NULL AND isIPAddressInRange(assumeNotNull({column}), {{{column}:String}})")
+            params[column] = parse_ip_filter(value)
     if f.user:
-        where.append(f"username ILIKE {p(_like_escape(f.user))}")  # exact but case-insensitive
+        where.append("lower(username) = lower({user:String})")  # exact but case-insensitive
+        params["user"] = f.user
     if f.host:
-        where.append(f"host ILIKE {p(_like_escape(f.host))}")
+        where.append("lower(host) = lower({host:String})")
+        params["host"] = f.host
     if f.country:
-        where.append(f"src_country = {p(f.country.upper())}")
+        where.append("src_country = {country:String}")
+        params["country"] = f.country.upper()
     if f.event_type:
-        where.append(f"event_type = {p(f.event_type)}")
+        where.append("event_type = {event_type:String}")
+        params["event_type"] = f.event_type
     if f.tag:
-        where.append(f"_tags @> ARRAY[{p(f.tag)}]::text[]")
+        where.append("has(tags, {tag:String})")
+        params["tag"] = f.tag
     if f.q:
-        pattern = p(f"%{_like_escape(f.q)}%")
-        where.append("(" + " OR ".join(f"{c} ILIKE {pattern}" for c in _Q_COLUMNS) + ")")
+        where.append("(" + " OR ".join(f"positionCaseInsensitiveUTF8(ifNull({c}, ''), {{q:String}}) > 0"
+                                       for c in _Q_COLUMNS) + ")")
+        params["q"] = f.q
     if f.cursor:
-        # Keyset paging: "rows after the last one I saw". Unlike OFFSET it stays fast on deep
-        # pages and doesn't skip/duplicate rows when new events arrive between page loads.
+        # Keyset paging: "rows after the last one I saw". Stays fast on deep pages and doesn't
+        # skip or repeat rows when new events arrive between page loads.
         ts, event_id = decode_cursor(f.cursor)
-        where.append(f"(ts, id) < ({p(ts)}, {p(event_id)})")
+        where.append("(ts, id) < ({cursor_ts:DateTime64(3, 'UTC')}, {cursor_id:UInt64})")
+        params.update(cursor_ts=ts, cursor_id=event_id)
+    # One extra row tells us whether there's a next page, without a count.
+    sql = f"SELECT * FROM events WHERE {' AND '.join(where)} ORDER BY ts DESC, id DESC LIMIT {{limit:UInt32}}"
+    return sql, params
 
-    # Fetch one extra row to know whether there is a next page without a COUNT(*).
-    sql = (f"SELECT * FROM events WHERE {' AND '.join(where)} "
-           f"ORDER BY ts DESC, id DESC LIMIT {p(f.limit + 1)}")
-    return sql, args
+
+def parse_ts(value: str) -> datetime:
+    """ClickHouse's 'YYYY-MM-DD hh:mm:ss.mmm' (UTC) as an aware datetime."""
+    return datetime.fromisoformat(value).replace(tzinfo=timezone.utc)
+
+
+def row_to_api(r: dict[str, Any]) -> dict[str, Any]:
+    """ClickHouse row -> common-schema JSON (`username` -> `user`, `ts` -> `@timestamp`, `tags` -> `_tags`)."""
+    d = dict(r)
+    d["@timestamp"] = parse_ts(d.pop("ts")).isoformat()
+    d["user"] = d.pop("username")
+    d["_tags"] = d.pop("tags")
+    d["raw"] = json.loads(d["raw"])
+    d.pop("ingested_at", None)
+    d.pop("fingerprint", None)  # internal dedup hash, not part of the schema
+    return d

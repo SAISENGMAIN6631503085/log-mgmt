@@ -24,8 +24,8 @@ class Settings(BaseSettings):
     retention_days: int = 7
     alert_webhook_url: str = ""
     alert_interval_seconds: int = 60
-    # ClickHouse (event store). Empty URL = not used (events stay in Postgres only).
-    clickhouse_url: str = ""
+    # ClickHouse: where every event (log) is stored. Postgres holds users, keys, alerts, settings.
+    clickhouse_url: str = "http://clickhouse:8123"
     clickhouse_db: str = "logmgmt"
     clickhouse_user: str = "logmgmt"
     clickhouse_password: str = ""

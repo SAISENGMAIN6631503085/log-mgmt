@@ -58,8 +58,6 @@ def _run(coro):
 
 @pytest.fixture
 def tenant():
-    if not settings.clickhouse_url:
-        pytest.skip("ClickHouse not configured")
     try:
         _run(lambda: ch.query("SELECT 1 AS ok"))
     except Exception:  # noqa: BLE001
@@ -96,8 +94,7 @@ def test_repeats_inside_one_batch_count_once(tenant):
 
 
 def test_same_content_at_another_time_is_a_new_event(tenant):
-    # Same rule as Postgres' unique (fingerprint, ts).
-    from datetime import timedelta
+    # A duplicate is the same fingerprint at the same time, not just the same content.
     a = _event(tenant, {"x": 1})
     b = a.model_copy(update={"ts": a.ts + timedelta(seconds=5)})
     assert _run(lambda: ch_events.insert_events([a, b])) == 2
@@ -105,7 +102,7 @@ def test_same_content_at_another_time_is_a_new_event(tenant):
     assert _count(tenant) == 2
 
 
-def test_ingest_copies_into_clickhouse(tenant):
+def test_ingest_stores_in_clickhouse(tenant):
     async def make_key():
         import asyncpg
         conn = await asyncpg.connect(settings.database_dsn)
@@ -125,20 +122,8 @@ def test_ingest_copies_into_clickhouse(tenant):
             import asyncpg
             conn = await asyncpg.connect(settings.database_dsn)
             try:
-                await conn.execute("DELETE FROM events WHERE tenant = $1", tenant)
                 await conn.execute("DELETE FROM api_keys WHERE tenant = $1", tenant)
             finally:
                 await conn.close()
         asyncio.run(cleanup())
 
-
-def test_copied_events_keep_their_original_arrival_time(tenant):
-    """The backfill passes Postgres' ingested_at; without it, old events look newly arrived."""
-    # Recent times: rows older than RETENTION_DAYS can be dropped by the TTL during the test.
-    now = datetime.now(timezone.utc).replace(microsecond=0)
-    arrived = now - timedelta(hours=2)
-    e = Event(ts=now - timedelta(hours=3), tenant=tenant, source="api", raw={"k": 1})
-    assert _run(lambda: ch_events.insert_events([e], [arrived])) == 1
-    [row] = _run(lambda: ch.query("SELECT toString(ingested_at) AS at FROM events WHERE tenant = {t:String}",
-                                  {"t": tenant}))
-    assert row["at"] == arrived.strftime("%Y-%m-%d %H:%M:%S.000")

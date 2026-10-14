@@ -5,7 +5,7 @@ import asyncpg
 from .ch_schema import ensure_schema
 from .clickhouse import ch
 from .config import settings
-from .migrate import ensure_partitions, run_migrations
+from .migrate import run_migrations
 
 # One pool per process, created at startup. A pool avoids paying connection setup per request.
 pool: asyncpg.Pool | None = None
@@ -21,16 +21,13 @@ async def connect() -> None:
         applied = await run_migrations(conn)
         if applied:
             print(f"migrations applied: {', '.join(applied)}")
-        await ensure_partitions(conn, settings.retention_days)
-    if ch.enabled:
-        await ch.connect()
-        await ensure_schema()
+    await ch.connect()
+    await ensure_schema()  # ClickHouse events table, per-minute totals and TTL
 
 
 async def _init_connection(conn: asyncpg.Connection) -> None:
     # Let asyncpg take/return Python dicts for jsonb columns instead of JSON strings.
-    # Binary format because COPY (used for bulk inserts) only speaks binary; jsonb's binary
-    # form is a version byte (1) followed by the JSON text.
+    # Binary format: jsonb's binary form is a version byte (1) followed by the JSON text.
     await conn.set_type_codec(
         "jsonb",
         encoder=lambda v: b"\x01" + json.dumps(v).encode(),

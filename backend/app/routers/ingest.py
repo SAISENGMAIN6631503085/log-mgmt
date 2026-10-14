@@ -1,5 +1,6 @@
 """Ingestion endpoints: HTTP JSON, file upload, and syslog forwarded by Vector."""
 import json
+import logging
 import secrets
 from datetime import datetime, timezone
 from typing import Any
@@ -7,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from pydantic import BaseModel, ValidationError
 
-from .. import db, geoip
+from .. import geoip
 from ..api_keys import tenant_from_api_key
 from ..auth import require_admin, scoped_tenant
 from ..config import settings
@@ -17,6 +18,7 @@ from ..normalizers import NORMALIZERS, normalize
 from ..normalizers.syslog import parse_tenant_map, tenant_for_sender
 
 router = APIRouter(prefix="/api/ingest", tags=["ingest"])
+log = logging.getLogger("ingest")
 
 MAX_EVENTS_PER_REQUEST = 10_000
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -84,8 +86,11 @@ async def _process(items: list[tuple[str, Any, str]]) -> IngestResult:
         except (ValueError, TypeError, KeyError, AttributeError) as exc:  # ValidationError is a ValueError
             rejected.append(Rejected(index=i, error=_error_text(exc)))
 
-    async with db.pool.acquire() as conn:
-        accepted = await insert_events(conn, events)
+    try:
+        accepted = await insert_events(events)
+    except Exception:  # noqa: BLE001 - ClickHouse down or failing: tell the sender to retry later
+        log.exception("storing %d events failed", len(events))
+        raise HTTPException(503, "event store unavailable; nothing was stored, retry later") from None
     return IngestResult(accepted=accepted, time_adjusted=adjusted, duplicates=len(events) - accepted, rejected_count=len(rejected), rejected=rejected[:MAX_ERRORS_RETURNED])
 
 

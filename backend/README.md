@@ -1,12 +1,17 @@
 # Backend (FastAPI)
 
-- `app/main.py` – app + `/health` (returns 503 if Postgres is unreachable)
+- `app/main.py` – app + `/health` (returns 503 if Postgres or ClickHouse is unreachable)
 - `app/config.py` – settings from env vars (documented in `/.env.example`)
 - `app/db.py` – asyncpg connection pool
 - `app/seed.py` – `make seed` entry point
 - `app/migrate.py` + `app/migrations/*.sql` – schema migrations, applied on startup
 
 ## Database schema
+Two databases, each for what it's good at (why: `docs/architecture.md`):
+- **ClickHouse** stores the events (logs): huge, written once, summarized all the time.
+- **PostgreSQL** stores the small data that changes: users, keys, alerts, rule settings.
+
+### PostgreSQL
 Migrations run automatically when the backend starts. Each `.sql` file runs once, in name
 order, in its own transaction, and is recorded in `schema_migrations`. A Postgres advisory
 lock stops two backends from migrating at the same time. To change the schema, add a new
@@ -14,26 +19,45 @@ numbered file. Never edit a migration that has already shipped.
 
 | Table | Purpose |
 |-------|---------|
-| `events` | normalized events, `PARTITION BY RANGE (ts)`, one partition per UTC day (`events_YYYYMMDD`) |
 | `users` | login accounts: bcrypt/argon2 hash, `role` admin/viewer, `tenant` |
 | `api_keys` | per-tenant ingest keys, stored as SHA-256 hashes |
 | `alerts` | alert worker output, indexed for (tenant, rule, src_ip) de-duplication |
+| `rule_settings` | per-tenant rule on/off and threshold |
+| `login_failures` | recent failed sign-ins, for throttling |
 
-Partitions are created from `RETENTION_DAYS` ago up to 7 days ahead on every startup, using
-`ensure_event_partition(day)`, which is safe to call repeatedly. There is deliberately
-no DEFAULT partition: an event with no partition is rejected rather than silently kept forever.
-Ingest must call `ensure_event_partition` for back-dated events.
+Events were in a day-partitioned Postgres table until migration 007 moved them to ClickHouse.
 
-The schema field `user` is stored as the column `username`, because `USER` is a reserved word in SQL.
+### ClickHouse (`app/ch_schema.py`, created or updated at startup)
+| Table | Purpose |
+|-------|---------|
+| `events` | normalized events: `ReplacingMergeTree`, `PARTITION BY toDate(ts)` (one partition per UTC day), `ORDER BY (tenant, ts, fingerprint)`, `TTL` = `RETENTION_DAYS` |
+| `events_minutely` | per-minute totals per (tenant, source, severity band), added to by the materialized view `events_minutely_mv` on every insert (`SummingMergeTree`, same TTL) |
+
+- `ORDER BY (tenant, ts, …)`: data is stored sorted by tenant and time, so a tenant's time range
+  is read without scanning anyone else's rows.
+- `LowCardinality` for repeated strings (source, action…), bloom-filter skip indexes on IP, user,
+  host and id, a token index on the raw log, ZSTD compression for `raw`.
+- Ids are time-ordered and kept under 2^53, so browsers (JSON numbers are doubles) show them exactly.
+- Queries go over ClickHouse's HTTP interface with `httpx`; values are always typed parameters
+  (`{tenant:String}`), never pasted into SQL.
+- Memory is capped in `clickhouse/config.d/small-server.xml` (650 MB for the server, 400 MB per
+  query) and tuned with ClickHouse's low-memory settings: small background pools, one thread per
+  query, no parallel parsing. Measured: about 250–350 MB idle and under 400 MB during the whole test
+  suite, so it fits a 2 GB VM. On a bigger appliance, raise the limits or delete that file.
+
+The schema field `user` is stored as the column `username`, because `USER` is a reserved word in
+SQL; `_tags` is stored as `tags`.
 
 - `app/routers/ingest.py` – ingestion endpoints (below)
 - `app/auth.py` + `app/routers/auth.py` – login, JWT, tenant scoping
 - `app/routers/events.py` – event search and single event (tenant-scoped)
-- `app/search.py` – builds the search SQL (pure, unit-tested)
+- `app/search.py` – builds the ClickHouse search query (pure, unit-tested)
+- `app/ch_stats.py` – the dashboard numbers, from ClickHouse
 - `app/alerting.py` + `app/routers/alerts.py` – alert worker and alerts API
-- `app/retention.py` – drops old partitions (hourly, and `make retention`)
+- `app/retention.py` – drops old days of events (hourly, and `make retention`)
 - `app/api_keys.py` – per-tenant `X-API-Key` auth (keys stored as SHA-256)
-- `app/events_store.py` – bulk insert with COPY, timestamp window check
+- `app/events_store.py` + `app/ch_events.py` – storing events in ClickHouse (dedup, ids), timestamp window check
+- `app/clickhouse.py` – the small ClickHouse HTTP client
 
 Tests live in `/tests` at the repo root; run them with `make test`.
 
@@ -63,45 +87,21 @@ Syslog (`syslog.py`):
   is moved to the previous year, which handles a Dec 31 line arriving on Jan 1.
 - The tenant comes from the sender IP via `SYSLOG_TENANT_MAP`, else `DEFAULT_TENANT`.
 
-## ClickHouse event store (being introduced in phases)
-Logs are a column-store job: huge, written once, summarized all the time. So events are moving to
-ClickHouse, and Postgres will keep the small data that changes (users, keys, alerts, settings).
+## How each feature uses ClickHouse
+- **Ingest** stores each batch in ClickHouse (`app/ch_events.py`). If ClickHouse is down, ingest
+  answers 503 and stores nothing, so the sender retries (Vector keeps a buffer and retries itself).
+- **Dashboard** (`/api/stats`, `app/ch_stats.py`): counts, timeline and breakdowns read
+  `events_minutely`, so they cost the same at any volume (precision: one minute). Top lists read
+  the events table. The response says which engine answered and how long it took (`engine`),
+  shown on the Overview.
+- **Search** (`/api/events`, `/api/events/{id}`): keyset paging on `(ts, id)`, see below.
+- **Alerts**: detection counts events in each window with a window function
+  (`RANGE BETWEEN <window> PRECEDING`). Per-tenant rule settings are in Postgres and applied in Python.
+- **Retention** drops whole days (`ALTER TABLE … DROP PARTITION`), see below.
 
-**Phase 1:** every stored batch is also written to ClickHouse (`app/ch_events.py`). Postgres is
-still the source of truth, so a ClickHouse error is logged and never blocks ingest; `make
-ch-backfill` (also run on every deploy) copies anything missing.
-
-**Phase 2:** the dashboard (`/api/stats`) is computed by ClickHouse (`app/ch_stats.py`).
-Counts, timeline and breakdowns read `events_minutely`, per-minute totals per (tenant, source) that
-a **materialized view** adds to on every insert (a `SummingMergeTree`, same TTL), so they cost the
-same at any volume; precision is one minute. Top lists read the events table (sorted by tenant and
-time). The response says which engine answered and how long it took (`engine`), shown on the
-Overview. `tests/test_stats.py` checks that ClickHouse and Postgres return identical numbers.
-
-**Phase 3 (now):** search (`/api/events`, `/api/events/{id}`, `app/ch_search.py`) and alert
-detection (`ch_detect_sql` in `app/alerting.py`) read ClickHouse. Same filters, keyset paging and
-rules as the Postgres versions; detection counts events in the window with a window function
-(`RANGE BETWEEN <window> PRECEDING`). Per-tenant rule settings stay in Postgres and are applied in
-Python. Ids are time-ordered and kept under 2^53 so browsers (JSON numbers are doubles) show them
-exactly. `make ch-rebuild` empties ClickHouse and copies everything again from Postgres.
-
-Tests write events through the app's own write path (`store_events` in `tests/conftest.py`), so
-the same assertions run against whichever store is configured. ClickHouse test data is deleted in
-one statement at the end of the run: a ClickHouse `DELETE` rewrites files in the background, and one
-per test piled up.
-
-The table (`app/ch_schema.py`, created at startup): `ReplacingMergeTree`, `PARTITION BY` day,
-`ORDER BY (tenant, ts, fingerprint)`, `TTL` = `RETENTION_DAYS`, `LowCardinality` columns, bloom-filter
-skip indexes on IP, user, host and id, a token index on the raw log, ZSTD for `raw`. A duplicate is
-the same fingerprint at the same time, the same rule as Postgres' unique `(fingerprint, ts)`; it's
-checked before inserting (so counts are right at once) and is also the merge key.
-
-Queries go over ClickHouse's HTTP interface with `httpx`; values are always typed parameters
-(`{tenant:String}`), never pasted into SQL. Memory is capped in `clickhouse/config.d/small-server.xml`
-(650 MB for the server, 400 MB per query) and tuned with ClickHouse's low-memory settings: small
-background pools, one thread per query, no parallel parsing. Measured: about 250–350 MB idle and
-under 400 MB during the whole test suite, so it fits a 2 GB VM. On a bigger appliance, raise the
-limits or delete that file.
+Tests store events through the app's own write path (`store_events` in `tests/conftest.py`).
+Their ClickHouse data is deleted in one statement at the end of the run: a ClickHouse `DELETE`
+rewrites files in the background, and one per test piled up.
 
 ## Enrichment: country of the source IP (`app/geoip.py`)
 After normalizing, ingest looks up the country of `src_ip` and stores it as `src_country`
@@ -120,20 +120,21 @@ All three normalize events, store the valid ones, and report the rest:
 `{"accepted": n, "duplicates": d, "rejected_count": m, "rejected": [{"index": i, "error": "..."}]}`.
 One bad event never blocks the rest of the batch.
 
-**Duplicates** (migration 003): an event already stored is counted in `duplicates` and not stored again.
+**Duplicates** (`app/ch_events.py`): an event already stored is counted in `duplicates` and not stored again.
 Re-uploading a file or Vector retrying a batch is therefore safe.
-- A trigger sets `fingerprint = sha256(jsonb_build_array(tenant, source, raw)::text)` on every insert.
-  `jsonb` normalizes key order and whitespace, so it is the same however the JSON was formatted.
-  Because the trigger sets it, a caller can't supply or forge one.
-- Uniqueness is on `(fingerprint, ts)`, because Postgres needs the partition key in a unique index.
-  So identical content at a different time is a different event.
+- `fingerprint = sha256(json([tenant, source, raw]) with sorted keys)`, so it is the same however
+  the JSON was formatted. The app always computes it, so a caller can't supply or forge one.
+- A duplicate is the same fingerprint **at the same time** (`ts`), so identical content at a
+  different time is a different event.
+- ClickHouse has no unique constraint, so the app checks which (fingerprint, ts) pairs already
+  exist before inserting; counts are right at once. `ReplacingMergeTree` with the same key also
+  removes any repeat that slips through (two inserts at the same moment) when it merges.
 - The same event sent by two tenants is stored for both.
 - Events with no timestamp get the receipt time, so they are never treated as duplicates. Two
   such sends are kept, rather than risk dropping real repeated events.
 - Trade-off: two genuinely separate events with byte-identical payloads *and* identical
   timestamps are stored once. Real sources include unique IDs or ports (CloudTrail `eventID`,
   M365 `Id`, AD `IpPort`), so this mostly affects hand-made test data.
-- Inserting goes COPY → temp table → `INSERT ... ON CONFLICT DO NOTHING`, since COPY alone can't skip conflicts.
 
 | Endpoint | Auth | Body |
 |----------|------|------|
@@ -225,8 +226,8 @@ than 403, so the response doesn't reveal that the id exists).
 
 How it works:
 - **No SQL injection.** Every value is sent as a query parameter; column names are fixed in code.
-- **Fast.** Every query is filtered by tenant and time, so Postgres reads only the relevant
-  daily partitions, using the `(tenant, ts)` index.
+- **Fast.** Every query is filtered by tenant and time, and ClickHouse stores events sorted by
+  `(tenant, ts)` in day partitions, so it reads only that tenant's slice of those days.
 - **Keyset paging (`(ts, id) < cursor`) instead of OFFSET.** Deep pages stay fast, and new
   events arriving between page loads don't cause duplicates or gaps.
 - **One extra row instead of `COUNT(*)`.** Each query fetches one row more than the page
@@ -273,25 +274,28 @@ API (Bearer token, tenant-scoped like search):
 - `PUT /api/rules/{id}` `{"enabled": true, "threshold": 10}` (admin only; applies from the next run)
 
 ## Retention
-`app/retention.py` runs hourly inside the backend and on demand with `make retention`:
-1. It creates partitions from `RETENTION_DAYS` ago up to 7 days ahead, so ingest never finds
-   a missing day, even if the backend was down for a while.
-2. It drops every `events_YYYYMMDD` partition older than `RETENTION_DAYS` (default 7).
-   The day exactly `RETENTION_DAYS` ago is kept, matching what ingest accepts.
+`app/retention.py` runs hourly inside the backend and on demand with `make retention`. It drops
+every day older than `RETENTION_DAYS` (default 7) from ClickHouse's `events` and
+`events_minutely`; the day exactly `RETENTION_DAYS` ago is kept, matching what ingest accepts.
 
-- `DROP TABLE` on a partition is instant and frees disk at once. A `DELETE` would be slow,
-  hold locks and leave dead rows for VACUUM. This is the reason the table is partitioned by day.
+- A day is one ClickHouse partition (`PARTITION BY toDate(ts)`), so dropping it
+  (`ALTER TABLE … DROP PARTITION`) is instant and frees disk at once. A `DELETE` would rewrite
+  data files instead. This is the reason the table is partitioned by day.
+- The tables' `TTL` removes the same rows as a safety net, but only when ClickHouse next merges
+  those files; the job makes it happen on time.
+- New days need nothing: ClickHouse creates a day's partition on its first insert.
 - It runs hourly, not daily, because every step is idempotent. A restart or a missed run is
   caught up within the hour, with no "last run" bookkeeping.
-- It only drops tables whose names match `^events_\d{8}$`, so it never removes a table it didn't create.
-- An advisory lock lets only one backend process run it at a time.
+- It only drops partitions whose ids match `^\d{8}$` (YYYYMMDD), so it never removes anything else.
+- A Postgres advisory lock lets only one backend process run it at a time. It also clears
+  `login_failures` rows older than a day.
 - Alerts are not removed by retention; they are small and are the record of what happened.
 
 ## Dashboard stats
 `GET /api/stats?from=&to=` (Bearer token, tenant-scoped; default last 24 h) returns:
 - totals (events, failed logins, severity ≥ 7, unique source IPs, open alerts)
-- a timeline (15-minute, hourly or daily buckets depending on the range; empty buckets are 0
-  via `generate_series`, so quiet periods show as quiet instead of disappearing)
+- a timeline (15-minute, hourly or daily buckets depending on the range; empty buckets are
+  filled with 0, so quiet periods show as quiet instead of disappearing)
 - counts by source and by severity band, and the top 10 source IPs and event types
 
 `GET /api/tenants` (admin only) lists tenants for the UI's tenant switcher.

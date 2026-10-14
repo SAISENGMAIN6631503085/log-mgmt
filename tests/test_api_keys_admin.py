@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from app.auth import Claims, create_token
 from app.config import settings
 from app.main import app
+from conftest import delete_events
 
 
 def _db(fn):
@@ -37,10 +38,10 @@ def env():
         yield client, a, b
 
     async def cleanup(c):
-        await c.execute("DELETE FROM events WHERE tenant = ANY($1)", [a, b])
         await c.execute("DELETE FROM api_keys WHERE tenant = ANY($1)", [a, b])
         await c.execute("DELETE FROM alerts WHERE tenant = ANY($1)", [a, b])
     _db(cleanup)
+    delete_events([a, b])
 
 
 def _send(client, key: str) -> int:

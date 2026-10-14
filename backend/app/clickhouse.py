@@ -2,7 +2,7 @@
 
 Values never go into the SQL text: queries use ClickHouse's typed placeholders, e.g.
 `WHERE tenant = {tenant:String}`, and the values travel separately as `param_tenant=...`,
-so search input can't inject SQL. Same rule as the Postgres side.
+so search input can't inject SQL. Same rule as the asyncpg ($1) queries on Postgres.
 """
 import asyncio
 import json
@@ -44,10 +44,6 @@ class ClickHouse:
         self._clients: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, httpx.AsyncClient] = \
             weakref.WeakKeyDictionary()
 
-    @property
-    def enabled(self) -> bool:
-        return bool(settings.clickhouse_url)
-
     def _client(self) -> httpx.AsyncClient:
         """This event loop's client, created on first use."""
         loop = asyncio.get_running_loop()
@@ -75,6 +71,13 @@ class ClickHouse:
         if r.status_code != 200:
             raise RuntimeError(f"ClickHouse error {r.status_code}: {r.text[:500]}")
         return r.text
+
+    async def ping(self) -> bool:
+        """True if ClickHouse answers a trivial query (/ping refuses the client's ?database= param)."""
+        try:
+            return (await self._client().post("/", params={"query": "SELECT 1"}, timeout=3)).status_code == 200
+        except httpx.HTTPError:
+            return False
 
     async def command(self, sql: str, params: dict[str, Any] | None = None) -> None:
         """DDL and other statements without a result."""

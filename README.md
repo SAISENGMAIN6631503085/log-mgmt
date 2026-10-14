@@ -8,7 +8,7 @@ the passwords and API keys there are not the demo values in this repo.
 A multi-tenant log management / SIEM-lite system:
 - It ingests logs from firewalls, network devices, applications, AWS CloudTrail, Microsoft 365,
   Active Directory and CrowdStrike, and normalizes them into one schema.
-- It stores them in PostgreSQL (partitioned by day) and offers search, a dashboard and brute-force login alerts.
+- It stores them in ClickHouse (one partition per day) and offers search, a dashboard and alerts; PostgreSQL keeps users, API keys and alerts.
 - Each tenant only ever sees its own data.
 
 It runs the same way on one VM (**appliance**) or on a public cloud VM with a real HTTPS domain (**SaaS**).
@@ -69,7 +69,7 @@ Notes on the samples:
 | `make logs` | follow logs from all services |
 | `make demo` | send every sample through syslog, the JSON API and file upload |
 | `make simulate` | live random traffic, with an attack every 2 minutes (brute force, port scan, malware in turn) |
-| `make retention` | drop event partitions older than `RETENTION_DAYS` now (also runs hourly) |
+| `make retention` | drop days of events older than `RETENTION_DAYS` now (also runs hourly) |
 
 ## Services
 | Service | Role | Exposed on the host |
@@ -77,7 +77,7 @@ Notes on the samples:
 | caddy | TLS + reverse proxy: `/api/*`, `/health`, `/docs` → backend, everything else → frontend | 80, 443 |
 | backend | FastAPI: ingest, normalizers, auth, search, stats, alerts; alert worker + retention jobs | – |
 | frontend | React SPA (dashboard, search, alerts), served as static files | – |
-| postgres | PostgreSQL 16: users, API keys, alerts, settings, and (for now) the events | – |
+| postgres | PostgreSQL 16: users, API keys, alerts, settings | – |
 | clickhouse | ClickHouse 24.8: column store for the events, memory-capped for small VMs (see below) | – |
 | vector | syslog receiver → backend | 514/udp, 514/tcp (`SYSLOG_BIND`) |
 | simulator | optional live demo traffic (`COMPOSE_PROFILES=demo` in `.env`; on in the live demo) | – |

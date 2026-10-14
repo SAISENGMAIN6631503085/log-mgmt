@@ -4,27 +4,14 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from .. import ch_search, db
-from ..clickhouse import ch
 from ..auth import scoped_tenant
+from ..clickhouse import ch
 from ..normalizers.common import Action, Source
-from ..search import SearchFilters, build_search, encode_cursor
+from ..search import SearchFilters, build_search, encode_cursor, row_to_api
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
 DEFAULT_WINDOW = timedelta(hours=24)
-
-
-def row_to_api(r) -> dict[str, Any]:
-    """DB row -> common-schema JSON (`username` -> `user`, `ts` -> `@timestamp`)."""
-    d = dict(r)
-    d["@timestamp"] = d.pop("ts").isoformat()
-    d["user"] = d.pop("username")
-    for k in ("src_ip", "dst_ip"):
-        d[k] = str(d[k]) if d[k] is not None else None
-    d.pop("ingested_at", None)
-    d.pop("fingerprint", None)  # internal dedup hash (bytes), not part of the schema
-    return d
 
 
 @router.get("")
@@ -57,18 +44,11 @@ async def search_events(
                             src_ip=src_ip, dst_ip=dst_ip, user=user, host=host, country=country, event_type=event_type,
                             tag=tag, q=q, cursor=cursor, limit=limit)
     try:
-        if ch.enabled:  # logs are searched in ClickHouse when it's configured
-            sql, params = ch_search.build_ch_search(tenant, filters)
-        else:
-            sql, args = build_search(tenant, filters)
+        sql, params = build_search(tenant, filters)
     except ValueError as exc:  # bad IP/CIDR or cursor
         raise HTTPException(422, str(exc)) from None
 
-    if ch.enabled:
-        rows = [ch_search.row_to_api(r) for r in await ch.query(sql, params)]
-    else:
-        async with db.pool.acquire() as conn:
-            rows = [row_to_api(r) for r in await conn.fetch(sql, *args)]
+    rows = [row_to_api(r) for r in await ch.query(sql, params)]
 
     has_more = len(rows) > limit
     rows = rows[:limit]
@@ -84,17 +64,11 @@ async def search_events(
 
 @router.get("/{event_id}")
 async def get_event(event_id: int, tenant: str = Depends(scoped_tenant)) -> dict[str, Any]:
-    if ch.enabled:
-        # Ids are unsigned 64-bit in ClickHouse; anything outside that range can't exist.
-        rows = [] if not 0 <= event_id < 2 ** 63 else await ch.query(
-            "SELECT * FROM events WHERE tenant = {tenant:String} AND id = {id:UInt64} LIMIT 1",
-            {"tenant": tenant, "id": event_id})
-        event = ch_search.row_to_api(rows[0]) if rows else None
-    else:
-        async with db.pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM events WHERE id = $1 AND tenant = $2", event_id, tenant)
-        event = row_to_api(row) if row else None
-    if event is None:
+    # Ids are unsigned 64-bit in ClickHouse; anything outside that range can't exist.
+    rows = [] if not 0 <= event_id < 2 ** 63 else await ch.query(
+        "SELECT * FROM events WHERE tenant = {tenant:String} AND id = {id:UInt64} LIMIT 1",
+        {"tenant": tenant, "id": event_id})
+    if not rows:
         # 404 (not 403) for another tenant's event: don't confirm that the id exists.
         raise HTTPException(404, "event not found")
-    return event
+    return row_to_api(rows[0])

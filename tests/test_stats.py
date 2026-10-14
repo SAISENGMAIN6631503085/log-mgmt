@@ -1,4 +1,4 @@
-"""Dashboard stats endpoint (real Postgres; skipped if it isn't running)."""
+"""Dashboard stats endpoint (real databases; skipped if they aren't running)."""
 import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -153,34 +153,6 @@ def test_source_filter(env):
     assert d2["totals"]["events"] == 3
 
 
-def test_clickhouse_and_postgres_give_the_same_numbers(env):
-    """The migration check: for the same events, the dashboard computed by ClickHouse (per-minute
-    totals + raw table) must equal the one computed by Postgres, field by field."""
-    from app import ch_stats
-    from app.clickhouse import ch
-    from app.routers.stats import _postgres_stats
-    if not ch.enabled:
-        pytest.skip("ClickHouse not configured")
-    client, t, _ = env
-    end = datetime.now(timezone.utc)
-    start, bucket = end - timedelta(hours=24), timedelta(hours=1)
-
-    async def both():
-        from app import db as app_db
-        await app_db.connect()
-        try:
-            return (await ch_stats.compute(t, start, end, [], bucket),
-                    await _postgres_stats(t, start, end, [], bucket))
-        finally:
-            await app_db.disconnect()
-    from_ch, from_pg = asyncio.run(both())
-    for key in from_pg:
-        if key != "engine":
-            assert from_ch[key] == from_pg[key], key
-    assert (from_ch["engine"]["name"], from_pg["engine"]["name"]) == ("clickhouse", "postgres")
-
-
 def test_dashboard_says_which_engine_answered(env):
-    from app.clickhouse import ch
     client, t, _ = env
-    assert get(client, t).json()["engine"]["name"] == ("clickhouse" if ch.enabled else "postgres")
+    assert get(client, t).json()["engine"]["name"] == "clickhouse"

@@ -19,9 +19,9 @@ import asyncpg
 import httpx
 
 from . import db, geoip
-from .ch_search import parse_ts
 from .clickhouse import ch
 from .config import settings
+from .search import parse_ts
 
 log = logging.getLogger("alerting")
 
@@ -31,8 +31,7 @@ class Rule:
     id: str
     name: str
     description: str        # plain words, shown on the Rules page
-    where: str              # SQL condition on events; fixed code, never user input
-    ch_where: str           # the same condition in ClickHouse SQL (events live there when configured)
+    where: str              # ClickHouse SQL condition on events; fixed code, never user input
     group_by: str           # "src_ip" or "host": a fixed column name, never user input
     threshold: int          # default; tenants may override it
     window: timedelta
@@ -42,22 +41,16 @@ class Rule:
 RULES = [
     Rule("brute_force_login", "Brute-force login",
          "Many failed sign-ins from one IP address: someone may be guessing passwords.",
-         "_tags @> '{auth_failure}'", "has(tags, 'auth_failure')", "src_ip", 5, timedelta(minutes=5), 7),
+         "has(tags, 'auth_failure')", "src_ip", 5, timedelta(minutes=5), 7),
     Rule("firewall_scan", "Firewall scan",
          "Many connections from one IP address blocked by the firewall: someone may be scanning for open ports.",
-         "source = 'firewall' AND _tags @> '{blocked}'", "source = 'firewall' AND has(tags, 'blocked')",
-         "src_ip", 20, timedelta(minutes=5), 6),
+         "source = 'firewall' AND has(tags, 'blocked')", "src_ip", 20, timedelta(minutes=5), 6),
     Rule("malware_detected", "Malware detected",
          "CrowdStrike reported a high-severity threat (7 or more) on a computer.",
-         "source = 'crowdstrike' AND severity >= 7", "source = 'crowdstrike' AND severity >= 7",
-         "host", 1, timedelta(minutes=5), 9),
+         "source = 'crowdstrike' AND severity >= 7", "host", 1, timedelta(minutes=5), 9),
 ]
 RULES_BY_ID = {r.id: r for r in RULES}
 
-
-def _as_text(column: str) -> str:
-    """The group value as plain text: host() turns inet 203.0.113.5 into "203.0.113.5" (::text would add "/32")."""
-    return f"host({column})" if column.endswith("src_ip") else column
 
 # Kept for readers of the original single-rule version (and its tests).
 RULE_ID = "brute_force_login"
@@ -70,43 +63,13 @@ WEBHOOK_RETRY_FOR = timedelta(hours=1)
 _LOCK_ID = 7_340_002  # one evaluator at a time, even with several backend processes
 
 def detect_sql(rule: Rule) -> str:
-    """For each (tenant, group) that received a matching event recently, slide the rule's
-    window over its matching events (by event time) and return every window that reaches the
-    tenant's threshold. `count(*) OVER` a RANGE frame = "matches in the window up to and
-    including this one". Only fixed strings from RULES are put into the SQL text.
-
-    Parameters: $1 ingested since, $2 oldest event time, $3 window, $4 rule id, $5 default threshold.
-    """
-    key = rule.group_by
-    return f"""
-WITH candidates AS (
-    SELECT DISTINCT tenant, {key} AS gkey FROM events
-    WHERE ingested_at >= $1 AND ts >= $2 AND {key} IS NOT NULL AND ({rule.where})
-),
-windows AS (
-    SELECT e.tenant, e.{key} AS gkey, e.ts AS window_end,
-           count(*)  OVER w AS n,
-           min(e.ts) OVER w AS window_start
-    FROM events e JOIN candidates c ON c.tenant = e.tenant AND c.gkey = e.{key}
-    WHERE e.ts >= $2 AND ({rule.where})
-    WINDOW w AS (PARTITION BY e.tenant, e.{key} ORDER BY e.ts
-                 RANGE BETWEEN $3::interval PRECEDING AND CURRENT ROW)
-)
-SELECT w.tenant, {"host(w.gkey)" if key == "src_ip" else "w.gkey"} AS group_key, w.n, w.window_start, w.window_end
-FROM windows w
-LEFT JOIN rule_settings s ON s.tenant = w.tenant AND s.rule_id = $4
-WHERE coalesce(s.enabled, true) AND w.n >= coalesce(s.threshold, $5)
-ORDER BY w.tenant, group_key, w.window_end
-"""
-
-
-def ch_detect_sql(rule: Rule) -> str:
-    """The same detection as detect_sql, in ClickHouse: for each (tenant, group) with a matching
-    event that arrived recently, count matching events in the window before each one, by event
-    time. Only fixed strings from RULES and the window's whole milliseconds go into the text; the
+    """For each (tenant, group) that received a matching event recently, slide the rule's window
+    over its matching events (by event time): `count() OVER` a RANGE frame = "matches in the
+    window up to and including this one". Returns every window that reaches `min_threshold`.
+    Only fixed strings from RULES and the window's whole milliseconds go into the text; the
     times and threshold are parameters. (A window frame's size must be a literal in ClickHouse.)
     """
-    key, where = rule.group_by, rule.ch_where
+    key, where = rule.group_by, rule.where
     ms = int(rule.window.total_seconds() * 1000)
     return f"""
 SELECT tenant, gkey AS group_key, n, toString(window_start) AS window_start, toString(window_end) AS window_end
@@ -128,17 +91,13 @@ ORDER BY tenant, group_key, window_end
 """
 
 
-async def _detect(conn: asyncpg.Connection, rule: Rule, now: datetime, oldest: datetime,
-                  rule_settings: dict) -> list[dict]:
-    """Qualifying windows for one rule: from ClickHouse when it holds the events, else Postgres.
-    Per-tenant settings (on/off, threshold) live in Postgres, so with ClickHouse they're applied
-    here: the query uses the lowest threshold in play, then each tenant's own is checked."""
-    if not ch.enabled:
-        return [dict(r) for r in await conn.fetch(detect_sql(rule), now - INGEST_LOOKBACK, oldest, rule.window,
-                                                  rule.id, rule.threshold)]
+async def _detect(rule: Rule, now: datetime, oldest: datetime, rule_settings: dict) -> list[dict]:
+    """Qualifying windows for one rule. Events are in ClickHouse but per-tenant settings (on/off,
+    threshold) are in Postgres, so they're applied here: the query uses the lowest threshold in
+    play, then each tenant's own is checked."""
     mine = {t: st for (t, r), st in rule_settings.items() if r == rule.id}
     lowest = min([rule.threshold, *(st["threshold"] for st in mine.values() if st["enabled"])])
-    rows = await ch.query(ch_detect_sql(rule), {"oldest": oldest, "since": now - INGEST_LOOKBACK,
+    rows = await ch.query(detect_sql(rule), {"oldest": oldest, "since": now - INGEST_LOOKBACK,
                                                  "min_threshold": lowest})
     out = []
     for r in rows:
@@ -176,19 +135,12 @@ async def _upsert_alert(conn: asyncpg.Connection, rule: Rule, b: dict) -> int | 
     De-duplication: if an alert for this group ended less than one window before this burst
     starts (or overlaps it), it's the same ongoing attack; extend it instead of alerting again.
     """
-    if ch.enabled:
-        details_rows = await ch.query(
-            f"""SELECT DISTINCT username, source, host, event_type FROM events
-                WHERE tenant = {{tenant:String}} AND {rule.group_by} = {{gk:String}}
-                  AND ts >= {{s:DateTime64(3, 'UTC')}} AND ts <= {{e:DateTime64(3, 'UTC')}} AND ({rule.ch_where})
-                LIMIT 200""",
-            {"tenant": b["tenant"], "gk": b["group_key"], "s": b["window_start"], "e": b["window_end"]})
-    else:
-        details_rows = await conn.fetch(
-            f"""SELECT DISTINCT username, source, host, event_type FROM events
-                WHERE tenant = $1 AND {_as_text(rule.group_by)} = $2 AND ts BETWEEN $3 AND $4 AND ({rule.where})
-                LIMIT 200""",
-            b["tenant"], b["group_key"], b["window_start"], b["window_end"])
+    details_rows = await ch.query(
+        f"""SELECT DISTINCT username, source, host, event_type FROM events
+            WHERE tenant = {{tenant:String}} AND {rule.group_by} = {{gk:String}}
+              AND ts >= {{s:DateTime64(3, 'UTC')}} AND ts <= {{e:DateTime64(3, 'UTC')}} AND ({rule.where})
+            LIMIT 200""",
+        {"tenant": b["tenant"], "gk": b["group_key"], "s": b["window_start"], "e": b["window_end"]})
     pick = lambda col: sorted({r[col] for r in details_rows if r[col]})[:20]  # noqa: E731
     details = {
         "users": pick("username"),
@@ -270,7 +222,7 @@ async def run_once(conn: asyncpg.Connection, now: datetime | None = None) -> lis
         rule_settings = {(r["tenant"], r["rule_id"]): dict(r) for r in
                          await conn.fetch("SELECT tenant, rule_id, enabled, threshold FROM rule_settings")}
         for rule in RULES:
-            rows = await _detect(conn, rule, now, oldest, rule_settings)
+            rows = await _detect(rule, now, oldest, rule_settings)
             for burst in merge_bursts(rows, key="group_key"):
                 st = rule_settings.get((burst["tenant"], rule.id))
                 burst["threshold"] = st["threshold"] if st else rule.threshold

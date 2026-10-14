@@ -8,7 +8,7 @@ SITE := $(or $(call env,SITE_ADDRESS),localhost)
 KEY_A := $(or $(shell sed -n 's/^SEED_API_KEYS=.*demoA=\([^,]*\).*/\1/p' .env 2>/dev/null),lm_demoA_dev_key_change_me)
 KEY_B := $(or $(shell sed -n 's/^SEED_API_KEYS=.*demoB=\([^,]*\).*/\1/p' .env 2>/dev/null),lm_demoB_dev_key_change_me)
 
-.PHONY: up down seed test logs ps health retention demo simulate ch-backfill ch-rebuild
+.PHONY: up down seed test logs ps health retention demo simulate ch-backfill
 
 # Create .env from the example on first run so `make up` works out of the box. Secrets get
 # fresh random values (the backend refuses the example JWT_SECRET, and no two installs should
@@ -38,17 +38,14 @@ seed: .env
 test: .env
 	$(COMPOSE) run --rm --no-deps -v $(CURDIR)/tests:/app/tests -v $(CURDIR)/samples:/app/samples:ro backend python -m pytest -q tests
 
-# Drop event partitions older than RETENTION_DAYS now (the backend also does this hourly)
+# Drop days of events older than RETENTION_DAYS now (the backend also does this hourly)
 retention: .env
 	$(COMPOSE) exec backend python -m app.retention
 
-# Copy events already in Postgres into ClickHouse (once, after adding ClickHouse; safe to rerun)
-ch-backfill: .env
-	$(COMPOSE) exec backend python -m app.ch_backfill
-
-# Empty ClickHouse's copy and copy everything again from Postgres (only while Postgres has every event)
-ch-rebuild: .env
-	$(COMPOSE) exec backend python -m app.ch_backfill --rebuild
+# Transitional, for the one deploy that removes Postgres events: the server's previous deploy
+# script still calls this after updating. Events are stored only in ClickHouse now.
+ch-backfill:
+	@echo "ch-backfill: nothing to do; events are stored only in ClickHouse"
 
 # Load every sample (timestamps moved to "now") through syslog, the JSON API and file upload
 demo: .env

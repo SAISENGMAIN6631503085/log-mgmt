@@ -14,25 +14,27 @@ def build(**kw):
 
 
 def test_tenant_and_time_always_present():
-    sql, args = build()
-    assert "tenant = $1" in sql and args[:3] == ["demoA", START, END]
+    sql, params = build()
+    assert sql.index("tenant = {tenant:String}") < sql.index("ts >= {start:")  # first condition
+    assert (params["tenant"], params["start"], params["end"]) == ("demoA", START, END)
 
 
 def test_user_values_are_parameters_not_sql():
     evil = "x'; DROP TABLE events; --"
-    sql, args = build(q=evil, user=evil, host=evil, event_type=evil, tag=evil)
+    sql, params = build(q=evil, user=evil, host=evil, event_type=evil, tag=evil)
     assert "DROP TABLE" not in sql
-    assert any("DROP TABLE" in str(a) for a in args)
+    assert all(params[k] == evil for k in ("q", "user", "host", "event_type", "tag"))
 
 
-def test_like_wildcards_escaped():
-    _, args = build(q="100%_x")
-    assert "%100\\%\\_x%" in args
+def test_free_text_is_matched_literally():
+    # A plain substring search (no LIKE), so "%" and "_" are just characters, not wildcards.
+    sql, params = build(q="100%_x")
+    assert params["q"] == "100%_x" and " LIKE " not in sql
 
 
-def test_lists_use_any():
-    sql, args = build(sources=["aws", "m365"])
-    assert "source = ANY($4)" in sql and ["aws", "m365"] in args
+def test_lists_use_in():
+    sql, params = build(sources=["aws", "m365"])
+    assert "source IN {sources:Array(String)}" in sql and params["sources"] == ["aws", "m365"]
 
 
 def test_ip_filter_accepts_ip_and_cidr():
@@ -43,8 +45,8 @@ def test_ip_filter_accepts_ip_and_cidr():
 
 
 def test_limit_fetches_one_extra():
-    _, args = build(limit=50)
-    assert args[-1] == 51
+    _, params = build(limit=50)
+    assert params["limit"] == 51
 
 
 def test_cursor_roundtrip():

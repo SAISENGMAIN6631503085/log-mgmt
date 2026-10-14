@@ -28,55 +28,51 @@ def sample_csv(name: str) -> list[dict]:
 
 
 def store_events(events) -> int:
-    """Store Event objects through the app's own write path (events_store.insert_events), so
-    they land wherever the app keeps events: Postgres and, when configured, ClickHouse.
-    Tests that read events through the API seed data this way instead of raw SQL."""
+    """Store Event objects through the app's own write path (events_store.insert_events, which
+    writes to ClickHouse). Tests that read events through the API seed data this way."""
     import asyncio
 
-    import asyncpg
-
-    from app import db as app_db
     from app.clickhouse import ch
-    from app.config import settings
     from app.events_store import insert_events
 
     async def run():
-        conn = await asyncpg.connect(settings.database_dsn, timeout=2)
-        await app_db._init_connection(conn)
-        if ch.enabled:
-            await ch.connect()
         try:
-            return await insert_events(conn, events)
+            return await insert_events(events)
         finally:
-            await conn.close()
             await ch.close()
     return asyncio.run(run())
 
 
-# Test tenants whose ClickHouse events are deleted once, at the end of the run (see below).
+def count_events(tenant: str, **where) -> int:
+    """How many distinct events a tenant has in ClickHouse, optionally with column = value
+    filters. FINAL applies ReplacingMergeTree's dedup even before ClickHouse has merged."""
+    import asyncio
+
+    from app.clickhouse import ch
+
+    clause = "".join(f" AND {col} = {{{col}:String}}" for col in where)  # names come from the test code
+
+    async def run():
+        try:
+            rows = await ch.query(f"SELECT count() AS n FROM events FINAL WHERE tenant = {{tenant:String}}{clause}",
+                                  {"tenant": tenant, **where})
+            return rows[0]["n"]
+        finally:
+            await ch.close()
+    return asyncio.run(run())
+
+
+# Test tenants whose events are deleted once, at the end of the run (see below).
 _CH_CLEANUP: set[str] = set()
 
 
 def delete_events(tenants: list[str]) -> None:
-    """Remove test tenants' events: from Postgres now, from ClickHouse at the end of the run.
+    """Mark test tenants' events for deletion at the end of the run.
 
     A ClickHouse DELETE rewrites data files in the background; one per test piled up and made
     the suite slower every run. Every test uses its own random tenant, so leftovers until the end
     can't affect other tests.
     """
-    import asyncio
-
-    import asyncpg
-
-    from app.config import settings
-
-    async def run():
-        conn = await asyncpg.connect(settings.database_dsn, timeout=2)
-        try:
-            await conn.execute("DELETE FROM events WHERE tenant = ANY($1)", tenants)
-        finally:
-            await conn.close()
-    asyncio.run(run())
     _CH_CLEANUP.update(tenants)
 
 
@@ -95,5 +91,4 @@ def pytest_sessionfinish(session, exitstatus):
                                  "SETTINGS lightweight_deletes_sync = 0", {"t": sorted(_CH_CLEANUP)})
         finally:
             await ch.close()
-    if ch.enabled:
-        asyncio.run(run())
+    asyncio.run(run())

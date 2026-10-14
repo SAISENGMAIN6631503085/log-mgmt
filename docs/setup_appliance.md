@@ -90,7 +90,7 @@ Firefox has its own certificate store: add the file under *Settings → Certific
 | Status | `make ps` |
 | Run tests | `make test` |
 | Stop / start | `make down` / `make up` (data is kept in Docker volumes) |
-| Drop old partitions now | `make retention` (also runs hourly) |
+| Drop old days of events now | `make retention` (also runs hourly) |
 | Update | `git pull && make up` (new migrations apply automatically) |
 | Backup | `docker compose exec -T postgres sh -c 'pg_dump -U $POSTGRES_USER $POSTGRES_DB' > backup.sql` |
 | Restore | `docker compose exec -T postgres sh -c 'psql -U $POSTGRES_USER $POSTGRES_DB' < backup.sql` |

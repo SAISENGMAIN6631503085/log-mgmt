@@ -1,4 +1,4 @@
-"""Dashboard numbers from ClickHouse. Same shape as the Postgres version in routers/stats.py.
+"""Dashboard numbers from ClickHouse, for /api/stats (routers/stats.py).
 
 - Counts, timeline and breakdowns read `events_minutely`, the ready-made per-minute totals kept by
   a materialized view, so they cost the same whether there are a thousand logs or a billion.
@@ -31,7 +31,7 @@ def _top(column: str, extra: str = "") -> str:
 
 def _buckets(start: datetime, end: datetime, bucket: timedelta) -> list[int]:
     """Bucket starts (epoch seconds) from the one containing `start` up to `end`, so empty
-    periods show as 0 instead of disappearing (same as Postgres' generate_series)."""
+    periods show as 0 instead of disappearing."""
     step = int(bucket.total_seconds())
     t = int(start.timestamp()) // step * step
     out = []

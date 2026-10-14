@@ -8,6 +8,7 @@ from fastapi import FastAPI, Response
 from . import db
 from .alerting import worker_loop
 from .auth import check_jwt_secret
+from .clickhouse import ch
 from .retention import retention_loop
 from .routers import alerts, auth, events, ingest, keys, rules, stats
 
@@ -46,9 +47,11 @@ app.add_api_route("/ingest", ingest.ingest_json, methods=["POST"], response_mode
 
 @app.get("/health")
 async def health(response: Response) -> dict:
-    # Reports the DB too, so "healthy" means the app can actually serve requests.
-    # 503 lets Docker/Caddy/uptime checks treat a DB outage as unhealthy.
-    db_ok = await db.ping()
-    if not db_ok:
+    # Reports both databases, so "healthy" means the app can actually serve requests: Postgres
+    # (users, alerts) and ClickHouse (the logs). 503 lets Docker/Caddy/uptime checks treat an
+    # outage of either as unhealthy.
+    db_ok, events_ok = await db.ping(), await ch.ping()
+    if not (db_ok and events_ok):
         response.status_code = 503
-    return {"status": "ok" if db_ok else "degraded", "database": "ok" if db_ok else "down"}
+    return {"status": "ok" if db_ok and events_ok else "degraded",
+            "database": "ok" if db_ok else "down", "event_store": "ok" if events_ok else "down"}

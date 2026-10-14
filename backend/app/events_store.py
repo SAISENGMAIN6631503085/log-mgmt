@@ -1,32 +1,15 @@
-"""Writing normalized events to Postgres."""
-import ipaddress
+"""Writing normalized events (to ClickHouse, the event store)."""
 from datetime import datetime, timedelta, timezone
 
-import logging
-
-import asyncpg
-
 from . import ch_events
-from .clickhouse import ch
 from .normalizers.common import Event
-
-log = logging.getLogger("events_store")
-
-# Column order for COPY. `user` -> username and `tags` -> _tags (see migration 001).
-_COLUMNS = [
-    "ts", "tenant", "source", "vendor", "product", "event_type", "event_subtype", "severity",
-    "action", "src_ip", "src_port", "dst_ip", "dst_port", "protocol", "username", "host",
-    "process", "url", "http_method", "status_code", "rule_name", "rule_id",
-    "cloud_account_id", "cloud_region", "cloud_service", "raw", "_tags", "src_country",
-]
 
 
 def check_ts_window(ts: datetime, retention_days: int, now: datetime | None = None) -> str | None:
     """Return an error if the event is outside what we can store, else None.
 
-    Older than retention: its partition would be dropped by the next retention run anyway.
-    More than a day in the future: almost always a broken clock or timezone bug, and it
-    would need partitions we don't create ahead of time.
+    Older than retention: its day would be dropped by the next retention run anyway.
+    More than a day in the future: almost always a broken clock or timezone bug.
     """
     now = now or datetime.now(timezone.utc)
     if ts < now - timedelta(days=retention_days):
@@ -36,44 +19,10 @@ def check_ts_window(ts: datetime, retention_days: int, now: datetime | None = No
     return None
 
 
-def _row(e: Event) -> tuple:
-    ip = lambda v: ipaddress.ip_address(v) if v else None  # noqa: E731 - asyncpg's inet codec wants ip objects
-    return (
-        e.ts, e.tenant, e.source, e.vendor, e.product, e.event_type, e.event_subtype, e.severity,
-        e.action, ip(e.src_ip), e.src_port, ip(e.dst_ip), e.dst_port, e.protocol, e.user, e.host,
-        e.process, e.url, e.http_method, e.status_code, e.rule_name, e.rule_id,
-        e.cloud_account_id, e.cloud_region, e.cloud_service, e.raw, e.tags, e.src_country,
-    )
+async def insert_events(events: list[Event]) -> int:
+    """Store a batch in ClickHouse; returns how many were new (duplicates are skipped).
 
-
-async def insert_events(conn: asyncpg.Connection, events: list[Event]) -> int:
-    """Insert a batch in one transaction; returns how many were new (duplicates are skipped).
-
-    COPY is much faster than row-by-row INSERTs but can't skip duplicates, so the batch is
-    COPYed into a temporary table and moved over with INSERT ... ON CONFLICT DO NOTHING.
-    The fingerprint is set by a trigger (migration 003).
+    If ClickHouse is down this raises, so the caller gets an error and retries: an HTTP sender
+    or Vector (which keeps a buffer) sends the batch again later, and dedup makes that safe.
     """
-    if not events:
-        return 0
-    cols = ", ".join(_COLUMNS)
-    async with conn.transaction():
-        # Back-dated events may belong to a day whose partition doesn't exist yet.
-        for day in sorted({e.ts.date() for e in events}):
-            await conn.execute("SELECT ensure_event_partition($1)", day)
-        # Same column types as events, no constraints; dropped automatically at commit.
-        await conn.execute(f"CREATE TEMP TABLE events_in ON COMMIT DROP AS SELECT {cols} FROM events WITH NO DATA")
-        await conn.copy_records_to_table("events_in", records=[_row(e) for e in events], columns=_COLUMNS)
-        accepted = await conn.fetchval(f"""
-            WITH inserted AS (
-                INSERT INTO events ({cols}) SELECT {cols} FROM events_in
-                ON CONFLICT (fingerprint, ts) DO NOTHING
-                RETURNING 1)
-            SELECT count(*) FROM inserted""")
-    # Phase 1 of the ClickHouse move: also copy the batch there. Postgres is still the source of
-    # truth, so a ClickHouse problem is logged and never blocks ingest.
-    if ch.enabled:
-        try:
-            await ch_events.insert_events(events)
-        except Exception:  # noqa: BLE001
-            log.exception("copy to ClickHouse failed; events are safe in Postgres")
-    return accepted
+    return await ch_events.insert_events(events)

@@ -15,6 +15,7 @@ from app.api_keys import create_key
 from app.config import settings
 from app.ingest_parsing import classify_syslog
 from app.main import app
+from conftest import delete_events
 from app.normalizers import ad, api, aws, crowdstrike, firewall, m365, network
 
 NOW = datetime(2025, 8, 21, tzinfo=timezone.utc)  # the samples' "Aug 20" is in the past
@@ -111,9 +112,9 @@ def keys():
     k = {name: _db(lambda c, t=t: create_key(c, t, "test")) for name, t in tenants.items()}
     with TestClient(app) as client:
         yield client, tenants, k
-    _db(lambda c: c.execute("DELETE FROM events WHERE tenant = ANY($1)", list(tenants.values())))
     _db(lambda c: c.execute("DELETE FROM api_keys WHERE tenant = ANY($1)", list(tenants.values())))
     _db(lambda c: c.execute("DELETE FROM alerts WHERE tenant = ANY($1)", list(tenants.values())))
+    delete_events(list(tenants.values()))
 
 
 @pytest.mark.parametrize("sample", [API, CS, AWS, M365, AD], ids=["api", "crowdstrike", "aws", "m365", "ad"])

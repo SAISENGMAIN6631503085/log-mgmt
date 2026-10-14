@@ -12,6 +12,7 @@ from app.api_keys import create_key
 from app.auth import Claims, create_token
 from app.config import settings
 from app.main import app
+from conftest import delete_events
 
 
 class FakeReader:
@@ -79,9 +80,10 @@ def env(fake_db):
         yield client, tenant, key
 
     async def cleanup(c):
-        for table in ("events", "api_keys", "alerts"):
+        for table in ("api_keys", "alerts"):
             await c.execute(f"DELETE FROM {table} WHERE tenant = $1", tenant)
     _db(cleanup)
+    delete_events([tenant])
 
 
 def test_country_is_stored_searchable_and_counted(env):

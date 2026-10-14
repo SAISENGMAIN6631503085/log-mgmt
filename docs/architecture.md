@@ -1,13 +1,14 @@
 # Architecture
 
 A small multi-tenant log management (SIEM-lite) system. It ingests logs from seven kinds of
-sources, normalizes them into one schema, stores them in PostgreSQL, and offers search, a
-dashboard and brute-force alerts. Everything runs from one `docker-compose.yml`, either on a
-single VM (**appliance**) or on a public cloud VM with a real HTTPS domain (**SaaS**).
+sources, normalizes them into one schema, stores them in ClickHouse, and offers search, a
+dashboard and alerts. PostgreSQL holds users, API keys, alerts and settings. Everything runs from
+one `docker-compose.yml`, either on a single VM (**appliance**) or on a public cloud VM with a real
+HTTPS domain (**SaaS**).
 
 ## Components
 
-![Architecture: log sources, the Docker Compose machine (Vector, Caddy, website, backend, PostgreSQL) and outside services](architecture.png)
+![Architecture: log sources, the Docker Compose machine (Vector, Caddy, website, backend, ClickHouse, PostgreSQL) and outside services](architecture.png)
 
 The same picture as a text diagram (renders on GitHub):
 
@@ -26,7 +27,8 @@ flowchart LR
         W[[alert worker<br/>every 60 s]]
         R[[retention<br/>hourly]]
         F[Frontend<br/>React static files]
-        P[(PostgreSQL 16<br/>events partitioned by day)]
+        CH[(ClickHouse<br/>events, one partition per day)]
+        P[(PostgreSQL 16<br/>users, keys, alerts, settings)]
     end
 
     U[Browser] -->|HTTPS| C
@@ -36,7 +38,8 @@ flowchart LR
     V -->|"HTTP + X-Ingest-Token<br/>(Docker network only)"| B
     C -->|/api/*, /health| B
     C -->|everything else| F
-    B --> P
+    B -->|logs| CH
+    B -->|accounts, alerts| P
     W --- B
     R --- B
     W -->|optional| WH[Webhook]
@@ -47,7 +50,8 @@ flowchart LR
 | **Caddy** | The only public entry point. Terminates TLS and routes `/api/*` and `/health` to the backend, everything else to the frontend. Blocks `/api/ingest/syslog` from outside. | Automatic HTTPS: Let's Encrypt in SaaS mode, its own local CA in appliance mode, from one Caddyfile. |
 | **Vector** | Listens for syslog on 514 and forwards raw lines plus the sender IP to the backend in batches; retries if the backend is down. | Handles the network side (UDP/TCP, batching, retries) so the backend only gets HTTP. Parsing stays in Python, where it is unit-tested. |
 | **Backend** | FastAPI app: ingest, normalizers, login, search, stats, alerts API. Two background tasks: the alert worker and retention. | Async Python, Pydantic validation, interactive API docs at `https://<host>/docs` for free. Background tasks run in-process: no extra queue or container for two periodic jobs. |
-| **PostgreSQL 16** | Events, users, API keys, alerts. | One database for everything. Day partitioning, JSONB and GIN indexes cover search and retention at this scale. |
+| **ClickHouse** | The events (logs): ingest, search, dashboard, alert detection, retention. | A column store: reads only the columns a query needs, compresses repeated values, and drops a whole day at once. See **Storage**. |
+| **PostgreSQL 16** | Users, API keys, alerts, rule settings, sign-in failures. | Small data that is edited often and needs unique constraints and transactions. |
 | **Frontend** | React + Vite + TypeScript SPA (dashboard, search, alerts), built to static files. | Served by a tiny internal Caddy; no Node at runtime. |
 
 All images are multi-arch (linux/amd64 and linux/arm64).
@@ -70,23 +74,20 @@ All images are multi-arch (linux/amd64 and linux/arm64).
 5. **Enriched**: the country of `src_ip` is looked up in the DB-IP Lite database
    (`app/geoip.py`, downloaded when the image is built, read locally) and stored as `src_country`.
    Private and reserved addresses have no country.
-6. **Stored**: one transaction makes sure the day partitions exist, then
-   COPY → temp table → `INSERT … ON CONFLICT DO NOTHING`.
-   A trigger sets a `fingerprint` (sha256 of tenant + source + raw), so duplicates are skipped.
+6. **Stored** in ClickHouse. The app computes a `fingerprint` (sha256 of tenant + source + raw)
+   and skips events whose fingerprint and time are already stored, so duplicates are counted, not
+   stored. If ClickHouse is down, ingest answers 503 and the sender retries.
 7. **Detected**: the alert worker picks up matching events that arrived in the last 10 minutes and
    checks their event-time history against each rule (e.g. 5+ failed logins from one IP in any 5 minutes).
-8. **Expired**: the retention job drops whole day partitions older than `RETENTION_DAYS`.
+8. **Expired**: the retention job drops whole days older than `RETENTION_DAYS`.
 
 ## Storage
 
-Events are moving to **ClickHouse** in phases (details in `backend/README.md`); today every event
-is written to both, and the dashboard, search and alert detection all read ClickHouse. Postgres
-still holds a full copy until the last phase. The end state uses each database
-for what it's good at:
+Each database does what it's good at:
 
 | Data | Store | Why this one |
 |---|---|---|
-| Events (logs): huge, written once, never edited, summarized constantly | **ClickHouse** | Column storage reads only the columns a summary needs, compresses repeated values 5–10×, and deletes old days by itself (TTL) |
+| Events (logs): huge, written once, never edited, summarized constantly | **ClickHouse** | Column storage reads only the columns a summary needs, compresses repeated values 5–10×, and drops old days at once |
 | Users, API keys, alerts, rule settings, sign-in failures: small, edited often | **PostgreSQL** | Fast single-row updates (acknowledge, revoke, change a password), unique constraints and transactions |
 
 **Why not Postgres alone?** At billions of rows, summaries (counts, top lists, timelines) get slow
@@ -95,26 +96,29 @@ because Postgres reads whole rows, and storage is costly without columnar compre
 asynchronous "mutations", and it has no unique constraints or transactions, which logins and keys need.
 
 ```
-events (PARTITION BY RANGE ts)            users       api_keys        alerts
- ├─ events_20261005                          role        key_hash        rule_id, src_ip
- ├─ events_20261006                          tenant      tenant          window_start/end
- ├─ …  one table per UTC day                 bcrypt      revoked_at      event_count, status
- └─ events_20261019  (created 7 days ahead)                              webhook_sent_at
+ClickHouse                                    PostgreSQL
+events (PARTITION BY toDate(ts),              users       api_keys        alerts
+        ORDER BY (tenant, ts, fingerprint))   role        key_hash        rule_id, group_key
+ ├─ 20261008  one partition per UTC day       tenant      tenant          window_start/end
+ ├─ …                                         bcrypt      revoked_at      event_count, status
+ └─ 20261014  (created by the first insert)                               webhook_sent_at
+events_minutely  per-minute totals, kept up
+                 to date by a materialized view
 ```
 
-- **Day partitions.** Retention is `DROP TABLE events_YYYYMMDD`: instant, with no slow
-  `DELETE` and no VACUUM bloat. Queries filtered by time only read the relevant days.
-  There is deliberately no DEFAULT partition, so an out-of-range event is rejected instead of
-  being kept forever.
-- **Indexes** (declared once on the parent, so every partition gets them):
-  - `(tenant, ts DESC)` for every search;
-  - `(tenant, src_ip, ts)` for the alert rule;
-  - GIN on `raw` and `_tags` for JSON and tag filters;
-  - `ingested_at` for the worker;
-  - `UNIQUE (fingerprint, ts)` for duplicates.
-- **Types**: `inet` for IPs (subnet search with `<<=`), `jsonb` for the original log, and `text[]` for tags.
-- **Migrations**: numbered SQL files applied at startup by a short runner (`app/migrate.py`),
-  each in a transaction, guarded by an advisory lock.
+- **Sorted by tenant and time.** `ORDER BY (tenant, ts, …)` stores each tenant's events together in
+  time order, so a search or summary reads only that tenant's slice of the days asked for.
+- **Day partitions.** Retention is `ALTER TABLE … DROP PARTITION`: instant, with no slow `DELETE`.
+  A `TTL` removes the same rows as a safety net when ClickHouse merges.
+- **Ready-made totals.** A materialized view adds every insert to `events_minutely`, so dashboard
+  counts and timelines cost the same at a thousand events or a billion.
+- **Skip indexes** (bloom filters on IP, user, host and id; a token index on the raw log) let
+  ClickHouse skip blocks that can't match a filter.
+- **Duplicates.** ClickHouse has no unique constraint, so the app checks (fingerprint, ts) before
+  inserting; `ReplacingMergeTree` on the same key removes anything that slips through.
+- **Migrations**: Postgres uses numbered SQL files applied at startup by a short runner
+  (`app/migrate.py`), each in a transaction, guarded by an advisory lock. The ClickHouse tables are
+  created (`IF NOT EXISTS`) at startup by `app/ch_schema.py`.
 
 ## Security
 
@@ -126,7 +130,7 @@ events (PARTITION BY RANGE ts)            users       api_keys        alerts
 | Syslog | No authentication exists in the protocol. Port 514 can be limited with `SYSLOG_BIND` or a firewall. The internal endpoint needs a shared token, and Caddy returns 404 for it from outside. |
 | SQL injection | All values are passed as query parameters; column names are fixed in code. Tested with hostile input. |
 | Secrets | Only from environment variables (`.env`, git-ignored). Every variable is documented in `.env.example`. |
-| Transport | HTTPS everywhere through Caddy. Postgres, the backend and the frontend are not published to the host. |
+| Transport | HTTPS everywhere through Caddy. Postgres, ClickHouse, the backend and the frontend are not published to the host. |
 
 ## Alerting
 
@@ -151,9 +155,9 @@ Admins can turn each rule off or change its threshold per tenant (Rules page, `r
 
 | Today | Why it's fine here | At scale |
 |-------|--------------------|----------|
-| PostgreSQL for events | Simple, one database, real transactions, enough for millions of rows per day | **ClickHouse** for events (MergeTree, `ORDER BY (tenant, ts)`, TTL for retention), keeping Postgres for users, rules and alerts |
+| One ClickHouse server, memory-capped for a 2 GB VM | Plenty for a demo's volume | A ClickHouse cluster with replicas, and a queue (e.g. Kafka) in front of ingest so logs can be replayed after an outage |
 | Workers inside the API process | No extra moving parts; advisory locks make several processes safe | A separate worker service or scheduler, and more rules defined as data |
-| Free-text search with `ILIKE` over a few columns and `raw::text` | Bounded by tenant and time range | Full-text index (`tsvector`) or a search engine |
+| Free-text search as a substring match over a few columns and `raw` | Bounded by tenant and time range; the token index skips blocks | ClickHouse's full-text index, or a search engine |
 | JWT in `localStorage` | Simple; survives reloads | httpOnly cookie plus CSRF protection; refresh tokens |
 | Content fingerprint for duplicates | Re-uploads and Vector retries are safe | Prefer vendor event IDs where they exist |
 | Syslog tenant by sender IP | Matches how appliances are deployed | Per-tenant collectors or TLS syslog with client certificates |

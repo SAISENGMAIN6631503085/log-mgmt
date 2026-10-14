@@ -1,4 +1,4 @@
-"""Ingestion endpoints end to end against the real Postgres (skipped if it isn't running).
+"""Ingestion endpoints end to end against the real databases (skipped if they aren't running).
 
 Each test uses a fresh random tenant and deletes its rows afterwards, so tests don't see
 each other's data or leave anything in the dev database.
@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from app.api_keys import create_key
 from app.config import settings
 from app.main import app
+from conftest import count_events, delete_events
 from app.normalizers.syslog import parse_tenant_map
 from app.routers import ingest
 
@@ -42,15 +43,14 @@ def env():
         yield client, tenant_a, key_a, tenant_b, key_b
 
     async def cleanup(c):
-        await c.execute("DELETE FROM events WHERE tenant = ANY($1)", [tenant_a, tenant_b])
         await c.execute("DELETE FROM api_keys WHERE tenant = ANY($1)", [tenant_a, tenant_b])
         await c.execute("DELETE FROM alerts WHERE tenant = ANY($1)", [tenant_a, tenant_b])
     _db(cleanup)
+    delete_events([tenant_a, tenant_b])
 
 
 def count(tenant: str, **where) -> int:
-    clause = "".join(f" AND {k} = ${i + 2}" for i, k in enumerate(where))
-    return _db(lambda c: c.fetchval(f"SELECT count(*) FROM events WHERE tenant = $1{clause}", tenant, *where.values()))
+    return count_events(tenant, **where)  # events are stored in ClickHouse
 
 
 def now_iso(**delta) -> str:

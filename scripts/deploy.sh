@@ -23,9 +23,6 @@ main() {
     # The simulator runs samples/simulator.py from a bind mount, so a changed script doesn't
     # recreate its container; restart it to pick up the new code. No-op without the demo profile.
     docker compose restart simulator >/dev/null 2>&1 || true
-    # Copy any events ClickHouse doesn't have yet (first deploy, or logs that arrived while it was
-    # down). Skips everything already there, so it's quick and safe on every deploy.
-    make ch-backfill
     # Each rebuild leaves the previous images behind; the server has a small disk.
     docker image prune -f >/dev/null
     echo "deployed $(git log --oneline -1)"
