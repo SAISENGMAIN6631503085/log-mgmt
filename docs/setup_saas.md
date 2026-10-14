@@ -13,7 +13,7 @@ Any provider works: AWS EC2, Google Cloud, Azure, Hetzner, DigitalOcean or Oracl
 always-free ARM VM. All images are multi-arch, so x86-64 and ARM both run unchanged.
 
 - Ubuntu 22.04 or 24.04, 2 vCPU, 4 GB RAM, 20+ GB disk. A demo runs on **1 vCPU / 2 GB** too: the stack
-  uses about 600 MB. Building the images needs more, so add 2 GB of swap first:
+  uses about 900 MB with ClickHouse (capped, see `clickhouse/config.d/small-server.xml`). Building the images needs more, so add 2 GB of swap first:
   `fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab`
 - A **static/public IP**
 - Cloud firewall / security group:

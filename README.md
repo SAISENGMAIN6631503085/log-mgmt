@@ -77,7 +77,8 @@ Notes on the samples:
 | caddy | TLS + reverse proxy: `/api/*`, `/health`, `/docs` → backend, everything else → frontend | 80, 443 |
 | backend | FastAPI: ingest, normalizers, auth, search, stats, alerts; alert worker + retention jobs | – |
 | frontend | React SPA (dashboard, search, alerts), served as static files | – |
-| postgres | PostgreSQL 16 | – |
+| postgres | PostgreSQL 16: users, API keys, alerts, settings, and (for now) the events | – |
+| clickhouse | ClickHouse 24.8: column store for the events, memory-capped for small VMs (see below) | – |
 | vector | syslog receiver → backend | 514/udp, 514/tcp (`SYSLOG_BIND`) |
 | simulator | optional live demo traffic (`COMPOSE_PROFILES=demo` in `.env`; on in the live demo) | – |
 

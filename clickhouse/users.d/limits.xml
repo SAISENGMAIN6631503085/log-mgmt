@@ -1,0 +1,9 @@
+<!-- Per-query limits for every user: one heavy query can't take the whole server. -->
+<clickhouse>
+    <profiles>
+        <default>
+            <max_memory_usage>400000000</max_memory_usage>
+            <max_threads>2</max_threads>
+        </default>
+    </profiles>
+</clickhouse>

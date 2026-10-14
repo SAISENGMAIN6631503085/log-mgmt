@@ -7,6 +7,10 @@ single VM (**appliance**) or on a public cloud VM with a real HTTPS domain (**Sa
 
 ## Components
 
+![Architecture: log sources, the Docker Compose machine (Vector, Caddy, website, backend, PostgreSQL) and outside services](architecture.png)
+
+The same picture as a text diagram (renders on GitHub):
+
 ```mermaid
 flowchart LR
     subgraph Sources
@@ -74,6 +78,20 @@ All images are multi-arch (linux/amd64 and linux/arm64).
 8. **Expired**: the retention job drops whole day partitions older than `RETENTION_DAYS`.
 
 ## Storage
+
+Events are moving to **ClickHouse** in phases (details in `backend/README.md`); today every event
+is written to both, and Postgres is still the source of truth. The end state uses each database
+for what it's good at:
+
+| Data | Store | Why this one |
+|---|---|---|
+| Events (logs): huge, written once, never edited, summarized constantly | **ClickHouse** | Column storage reads only the columns a summary needs, compresses repeated values 5–10×, and deletes old days by itself (TTL) |
+| Users, API keys, alerts, rule settings, sign-in failures: small, edited often | **PostgreSQL** | Fast single-row updates (acknowledge, revoke, change a password), unique constraints and transactions |
+
+**Why not Postgres alone?** At billions of rows, summaries (counts, top lists, timelines) get slow
+because Postgres reads whole rows, and storage is costly without columnar compression.
+**Why not ClickHouse alone?** It's built for appends and big scans: single-row edits are slow,
+asynchronous "mutations", and it has no unique constraints or transactions, which logins and keys need.
 
 ```
 events (PARTITION BY RANGE ts)            users       api_keys        alerts

@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     retention_days: int = 7
     alert_webhook_url: str = ""
     alert_interval_seconds: int = 60
+    # ClickHouse (event store). Empty URL = not used (events stay in Postgres only).
+    clickhouse_url: str = ""
+    clickhouse_db: str = "logmgmt"
+    clickhouse_user: str = "logmgmt"
+    clickhouse_password: str = ""
     # Sign-in throttling: this many failures within the window locks the account (or the client
     # address) until the window has passed. Stops password guessing against our own login page.
     login_max_failures: int = 5

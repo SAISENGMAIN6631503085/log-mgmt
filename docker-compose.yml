@@ -16,11 +16,35 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Column store for the events (logs): fast summaries over many rows, compressed, auto-expiring.
+  # Postgres keeps the small data that changes (users, keys, alerts). Not published to the host.
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-logmgmt}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-logmgmt}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
+    volumes:
+      - chdata:/var/lib/clickhouse
+      - ./clickhouse/config.d/small-server.xml:/etc/clickhouse-server/config.d/small-server.xml:ro
+      - ./clickhouse/users.d/limits.xml:/etc/clickhouse-server/users.d/limits.xml:ro
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
   backend:
     build: ./backend
     env_file: .env
     depends_on:
       postgres:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -82,5 +106,6 @@ services:
 
 volumes:
   pgdata:
+  chdata:
   caddy_data:
   caddy_config:

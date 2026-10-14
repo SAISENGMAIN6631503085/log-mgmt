@@ -1,0 +1,30 @@
+<!-- ClickHouse is tuned for big servers by default (large caches, many internal log tables).
+     This demo shares a 2 GB VM with the rest of the stack, so cap memory and turn the extras off.
+     On a real appliance (8 GB+), raise max_server_memory_usage or delete this file. -->
+<clickhouse>
+    <logger>
+        <level>warning</level>
+        <console>1</console>
+    </logger>
+    <!-- Hard ceiling for the whole server; queries fail cleanly instead of the OS killing it. -->
+    <max_server_memory_usage>650000000</max_server_memory_usage>
+    <mark_cache_size>67108864</mark_cache_size>
+    <uncompressed_cache_size>0</uncompressed_cache_size>
+    <!-- Internal query/metric history tables: useful when tuning big clusters, wasted memory here. -->
+    <query_log remove="1"/>
+    <query_thread_log remove="1"/>
+    <query_views_log remove="1"/>
+    <part_log remove="1"/>
+    <trace_log remove="1"/>
+    <metric_log remove="1"/>
+    <asynchronous_metric_log remove="1"/>
+    <text_log remove="1"/>
+    <session_log remove="1"/>
+    <processors_profile_log remove="1"/>
+    <opentelemetry_span_log remove="1"/>
+    <asynchronous_insert_log remove="1"/>
+    <backup_log remove="1"/>
+    <s3queue_log remove="1"/>
+    <blob_storage_log remove="1"/>
+    <error_log remove="1"/>
+</clickhouse>

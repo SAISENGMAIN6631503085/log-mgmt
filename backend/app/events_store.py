@@ -2,9 +2,15 @@
 import ipaddress
 from datetime import datetime, timedelta, timezone
 
+import logging
+
 import asyncpg
 
+from . import ch_events
+from .clickhouse import ch
 from .normalizers.common import Event
+
+log = logging.getLogger("events_store")
 
 # Column order for COPY. `user` -> username and `tags` -> _tags (see migration 001).
 _COLUMNS = [
@@ -57,9 +63,17 @@ async def insert_events(conn: asyncpg.Connection, events: list[Event]) -> int:
         # Same column types as events, no constraints; dropped automatically at commit.
         await conn.execute(f"CREATE TEMP TABLE events_in ON COMMIT DROP AS SELECT {cols} FROM events WITH NO DATA")
         await conn.copy_records_to_table("events_in", records=[_row(e) for e in events], columns=_COLUMNS)
-        return await conn.fetchval(f"""
+        accepted = await conn.fetchval(f"""
             WITH inserted AS (
                 INSERT INTO events ({cols}) SELECT {cols} FROM events_in
                 ON CONFLICT (fingerprint, ts) DO NOTHING
                 RETURNING 1)
             SELECT count(*) FROM inserted""")
+    # Phase 1 of the ClickHouse move: also copy the batch there. Postgres is still the source of
+    # truth, so a ClickHouse problem is logged and never blocks ingest.
+    if ch.enabled:
+        try:
+            await ch_events.insert_events(events)
+        except Exception:  # noqa: BLE001
+            log.exception("copy to ClickHouse failed; events are safe in Postgres")
+    return accepted

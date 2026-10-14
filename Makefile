@@ -8,14 +8,14 @@ SITE := $(or $(call env,SITE_ADDRESS),localhost)
 KEY_A := $(or $(shell sed -n 's/^SEED_API_KEYS=.*demoA=\([^,]*\).*/\1/p' .env 2>/dev/null),lm_demoA_dev_key_change_me)
 KEY_B := $(or $(shell sed -n 's/^SEED_API_KEYS=.*demoB=\([^,]*\).*/\1/p' .env 2>/dev/null),lm_demoB_dev_key_change_me)
 
-.PHONY: up down seed test logs ps health retention demo simulate
+.PHONY: up down seed test logs ps health retention demo simulate ch-backfill
 
 # Create .env from the example on first run so `make up` works out of the box. Secrets get
 # fresh random values (the backend refuses the example JWT_SECRET, and no two installs should
 # share secrets). sed -i.bak works with both GNU and BSD/macOS sed.
 .env:
 	cp .env.example .env
-	@for var in POSTGRES_PASSWORD JWT_SECRET SYSLOG_INGEST_TOKEN; do \
+	@for var in POSTGRES_PASSWORD CLICKHOUSE_PASSWORD JWT_SECRET SYSLOG_INGEST_TOKEN; do \
 		sed -i.bak "s|^$$var=.*|$$var=$$(openssl rand -hex 32)|" .env; \
 	done; rm -f .env.bak
 	@echo "Created .env with random secrets. Review it (demo passwords, SITE_ADDRESS) before deploying."
@@ -41,6 +41,10 @@ test: .env
 # Drop event partitions older than RETENTION_DAYS now (the backend also does this hourly)
 retention: .env
 	$(COMPOSE) exec backend python -m app.retention
+
+# Copy events already in Postgres into ClickHouse (once, after adding ClickHouse; safe to rerun)
+ch-backfill: .env
+	$(COMPOSE) exec backend python -m app.ch_backfill
 
 # Load every sample (timestamps moved to "now") through syslog, the JSON API and file upload
 demo: .env

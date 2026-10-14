@@ -2,6 +2,8 @@ import json
 
 import asyncpg
 
+from .ch_schema import ensure_schema
+from .clickhouse import ch
 from .config import settings
 from .migrate import ensure_partitions, run_migrations
 
@@ -20,6 +22,9 @@ async def connect() -> None:
         if applied:
             print(f"migrations applied: {', '.join(applied)}")
         await ensure_partitions(conn, settings.retention_days)
+    if ch.enabled:
+        await ch.connect()
+        await ensure_schema()
 
 
 async def _init_connection(conn: asyncpg.Connection) -> None:
@@ -38,6 +43,7 @@ async def _init_connection(conn: asyncpg.Connection) -> None:
 async def disconnect() -> None:
     if pool is not None:
         await pool.close()
+    await ch.close()
 
 
 async def ping() -> bool:

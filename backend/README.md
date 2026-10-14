@@ -63,6 +63,24 @@ Syslog (`syslog.py`):
   is moved to the previous year, which handles a Dec 31 line arriving on Jan 1.
 - The tenant comes from the sender IP via `SYSLOG_TENANT_MAP`, else `DEFAULT_TENANT`.
 
+## ClickHouse event store (being introduced in phases)
+Logs are a column-store job: huge, written once, summarized all the time. So events are moving to
+ClickHouse, and Postgres will keep the small data that changes (users, keys, alerts, settings).
+
+**Phase 1 (now):** every stored batch is also written to ClickHouse (`app/ch_events.py`). Postgres
+is still the source of truth, so a ClickHouse error is logged and never blocks ingest; `make
+ch-backfill` (also run on every deploy) copies anything missing.
+
+The table (`app/ch_schema.py`, created at startup): `ReplacingMergeTree`, `PARTITION BY` day,
+`ORDER BY (tenant, ts, fingerprint)`, `TTL` = `RETENTION_DAYS`, `LowCardinality` columns, bloom-filter
+skip indexes on IP, user, host and id, a token index on the raw log, ZSTD for `raw`. A duplicate is
+the same fingerprint at the same time, the same rule as Postgres' unique `(fingerprint, ts)`; it's
+checked before inserting (so counts are right at once) and is also the merge key.
+
+Queries go over ClickHouse's HTTP interface with `httpx`; values are always typed parameters
+(`{tenant:String}`), never pasted into SQL. Memory is capped in `clickhouse/config.d/small-server.xml`
+(about 650 MB for the server, 400 MB per query; it idles around 200 MB) so it fits a 2 GB VM.
+
 ## Enrichment: country of the source IP (`app/geoip.py`)
 After normalizing, ingest looks up the country of `src_ip` and stores it as `src_country`
 (two-letter code, migration 005). It's then a search filter (`?country=TH`), a dashboard table
