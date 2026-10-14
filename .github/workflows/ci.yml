@@ -19,8 +19,9 @@ jobs:
       # Fail if anything was skipped: database tests skip themselves when Postgres is down,
       # so a skip here means a lost test.
       # pipefail: without it the step's result is tee's (always success), so failing tests
-      # would pass CI and still deploy.
-      - run: |
+      # would pass CI and still deploy. The suite takes about a minute; a hang fails after 10.
+      - timeout-minutes: 10
+        run: |
           set -o pipefail
           make test | tee pytest.log
           if grep -q skipped pytest.log; then echo "::error::tests were skipped"; exit 1; fi

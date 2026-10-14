@@ -34,9 +34,10 @@ seed: .env
 	$(COMPOSE) exec backend python -m app.seed
 
 # Tests live in /tests at the repo root (assignment layout), so mount them into the backend image.
-# `python -m` puts /app on sys.path so tests can `import app`.
+# `python -m` puts /app on sys.path so tests can `import app`. faulthandler_timeout: a test
+# still running after 2 minutes prints its stack trace, so a hang shows where it is.
 test: .env
-	$(COMPOSE) run --rm --no-deps -v $(CURDIR)/tests:/app/tests -v $(CURDIR)/samples:/app/samples:ro backend python -m pytest -q tests
+	$(COMPOSE) run --rm --no-deps -v $(CURDIR)/tests:/app/tests -v $(CURDIR)/samples:/app/samples:ro backend python -m pytest -q -o faulthandler_timeout=120 tests
 
 # Drop days of events older than RETENTION_DAYS now (the backend also does this hourly)
 retention: .env
