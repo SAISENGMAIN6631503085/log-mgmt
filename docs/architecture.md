@@ -80,7 +80,8 @@ All images are multi-arch (linux/amd64 and linux/arm64).
 ## Storage
 
 Events are moving to **ClickHouse** in phases (details in `backend/README.md`); today every event
-is written to both, and Postgres is still the source of truth. The end state uses each database
+is written to both, and the dashboard, search and alert detection all read ClickHouse. Postgres
+still holds a full copy until the last phase. The end state uses each database
 for what it's good at:
 
 | Data | Store | Why this one |

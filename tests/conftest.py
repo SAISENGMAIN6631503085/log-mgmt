@@ -53,13 +53,21 @@ def store_events(events) -> int:
     return asyncio.run(run())
 
 
+# Test tenants whose ClickHouse events are deleted once, at the end of the run (see below).
+_CH_CLEANUP: set[str] = set()
+
+
 def delete_events(tenants: list[str]) -> None:
-    """Remove test tenants' events from every store (Postgres, and ClickHouse with its totals)."""
+    """Remove test tenants' events: from Postgres now, from ClickHouse at the end of the run.
+
+    A ClickHouse DELETE rewrites data files in the background; one per test piled up and made
+    the suite slower every run. Every test uses its own random tenant, so leftovers until the end
+    can't affect other tests.
+    """
     import asyncio
 
     import asyncpg
 
-    from app.clickhouse import ch
     from app.config import settings
 
     async def run():
@@ -68,11 +76,24 @@ def delete_events(tenants: list[str]) -> None:
             await conn.execute("DELETE FROM events WHERE tenant = ANY($1)", tenants)
         finally:
             await conn.close()
-        if ch.enabled:
-            await ch.connect()
-            try:
-                for table in ("events", "events_minutely"):
-                    await ch.command(f"DELETE FROM {table} WHERE tenant IN {{t:Array(String)}}", {"t": tenants})
-            finally:
-                await ch.close()
     asyncio.run(run())
+    _CH_CLEANUP.update(tenants)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """One ClickHouse delete for all test tenants, not waited for (lightweight_deletes_sync=0)."""
+    if not _CH_CLEANUP:
+        return
+    import asyncio
+
+    from app.clickhouse import ch
+
+    async def run():
+        try:
+            for table in ("events", "events_minutely"):
+                await ch.command(f"DELETE FROM {table} WHERE tenant IN {{t:Array(String)}} "
+                                 "SETTINGS lightweight_deletes_sync = 0", {"t": sorted(_CH_CLEANUP)})
+        finally:
+            await ch.close()
+    if ch.enabled:
+        asyncio.run(run())

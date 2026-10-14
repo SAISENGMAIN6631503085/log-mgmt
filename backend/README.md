@@ -71,12 +71,24 @@ ClickHouse, and Postgres will keep the small data that changes (users, keys, ale
 still the source of truth, so a ClickHouse error is logged and never blocks ingest; `make
 ch-backfill` (also run on every deploy) copies anything missing.
 
-**Phase 2 (now):** the dashboard (`/api/stats`) is computed by ClickHouse (`app/ch_stats.py`).
+**Phase 2:** the dashboard (`/api/stats`) is computed by ClickHouse (`app/ch_stats.py`).
 Counts, timeline and breakdowns read `events_minutely`, per-minute totals per (tenant, source) that
 a **materialized view** adds to on every insert (a `SummingMergeTree`, same TTL), so they cost the
 same at any volume; precision is one minute. Top lists read the events table (sorted by tenant and
 time). The response says which engine answered and how long it took (`engine`), shown on the
 Overview. `tests/test_stats.py` checks that ClickHouse and Postgres return identical numbers.
+
+**Phase 3 (now):** search (`/api/events`, `/api/events/{id}`, `app/ch_search.py`) and alert
+detection (`ch_detect_sql` in `app/alerting.py`) read ClickHouse. Same filters, keyset paging and
+rules as the Postgres versions; detection counts events in the window with a window function
+(`RANGE BETWEEN <window> PRECEDING`). Per-tenant rule settings stay in Postgres and are applied in
+Python. Ids are time-ordered and kept under 2^53 so browsers (JSON numbers are doubles) show them
+exactly. `make ch-rebuild` empties ClickHouse and copies everything again from Postgres.
+
+Tests write events through the app's own write path (`store_events` in `tests/conftest.py`), so
+the same assertions run against whichever store is configured. ClickHouse test data is deleted in
+one statement at the end of the run: a ClickHouse `DELETE` rewrites files in the background, and one
+per test piled up.
 
 The table (`app/ch_schema.py`, created at startup): `ReplacingMergeTree`, `PARTITION BY` day,
 `ORDER BY (tenant, ts, fingerprint)`, `TTL` = `RETENTION_DAYS`, `LowCardinality` columns, bloom-filter

@@ -5,7 +5,6 @@ merges parts (eventually), so we also skip events whose fingerprint is already s
 inserting. That keeps counts right straight away and lets ingest report "duplicates" like before.
 """
 import hashlib
-import itertools
 import json
 import secrets
 import time
@@ -22,16 +21,21 @@ def fingerprint(e: Event) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-# Low 22 bits: a counter, not random bits. Random bits collide surprisingly often when one upload
-# makes thousands of ids in the same millisecond (birthday problem); a counter can't repeat until
-# 4 million ids. It starts at a random point so separate backend processes are unlikely to overlap.
-_seq = itertools.count(secrets.randbits(22))
+# Ids must fit in 53 bits: browsers keep JSON numbers as doubles, which are exact only up to
+# 2^53, so a bigger id could come back changed and open the wrong event. Layout: milliseconds
+# since 1970 (41 bits, good until 2039) shifted left by 12, plus a counter. The id only ever goes
+# up, even for a 10,000-event batch inside one millisecond: it then runs slightly ahead of the
+# clock. Each process adds its own random offset to the millisecond, so two processes (the API
+# and a backfill, say) starting in the same millisecond are unlikely to hand out the same id.
+_OFFSET = secrets.randbits(11)
+_last_id = 0
 
 
 def new_id() -> int:
-    """Time-ordered 63-bit id: milliseconds since 1970 in the high bits, a counter below.
-    Sorts roughly by arrival, like Postgres' identity column, without a central sequence."""
-    return (int(time.time() * 1000) << 22) | (next(_seq) & 0x3FFFFF)
+    """Unique (per process), increasing, roughly time-ordered, and exact in JavaScript."""
+    global _last_id
+    _last_id = max(_last_id + 1, (int(time.time() * 1000) << 12) + _OFFSET)
+    return _last_id
 
 
 def _row(e: Event, fp: str) -> dict:

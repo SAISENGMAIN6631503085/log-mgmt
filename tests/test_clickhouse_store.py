@@ -15,6 +15,7 @@ from app.clickhouse import _param, ch
 from app.config import settings
 from app.main import app
 from app.normalizers.common import Event
+from conftest import _CH_CLEANUP
 
 # --- unit -------------------------------------------------------------------------------
 
@@ -29,10 +30,11 @@ def test_fingerprint_ignores_key_order():
     assert ch_events.fingerprint(_event(tenant="x")) != ch_events.fingerprint(_event(tenant="y"))
 
 
-def test_ids_are_unique_and_time_ordered():
-    ids = [ch_events.new_id() for _ in range(1000)]
-    assert len(set(ids)) == 1000
-    assert ids[-1] >> 22 >= ids[0] >> 22  # the millisecond part never goes backwards
+def test_ids_are_unique_increasing_and_safe_in_javascript():
+    ids = [ch_events.new_id() for _ in range(20_000)]  # more than fit in one millisecond
+    assert len(set(ids)) == len(ids)
+    assert ids == sorted(ids)
+    assert max(ids) < 2 ** 53  # JSON numbers in browsers are exact only up to 2^53
 
 
 def test_parameters_are_quoted_not_pasted():
@@ -64,7 +66,7 @@ def tenant():
         pytest.skip("ClickHouse not reachable; run `make up` first")
     t = f"chs_{uuid.uuid4().hex[:8]}"
     yield t
-    _run(lambda: ch.command("DELETE FROM events WHERE tenant = {t:String}", {"t": t}))
+    _CH_CLEANUP.add(t)  # deleted once at the end of the run (see conftest.py)
 
 
 def _count(t: str) -> int:

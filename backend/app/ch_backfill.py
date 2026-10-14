@@ -2,8 +2,12 @@
 
 Needed once when ClickHouse is added to an existing install. Safe to run again: events whose
 fingerprint is already in ClickHouse are skipped.
+
+`make ch-rebuild` (--rebuild) first empties ClickHouse's events and per-minute totals, then copies
+everything again. Only for while Postgres still holds every event (the migration phases).
 """
 import asyncio
+import sys
 
 from . import ch_events, db
 from .clickhouse import ch
@@ -30,6 +34,10 @@ async def main() -> None:
         return
     copied = seen = 0
     last = (None, 0)
+    if "--rebuild" in sys.argv:
+        for table in ("events_minutely", "events"):
+            await ch.command(f"TRUNCATE TABLE {table}")
+        print("ch-rebuild: emptied events and events_minutely")
     try:
         async with db.pool.acquire() as conn:
             while True:

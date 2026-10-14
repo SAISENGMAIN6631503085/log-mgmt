@@ -1,6 +1,5 @@
 """Search over HTTP against the real database (skipped if Postgres is down)."""
 import asyncio
-import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -11,6 +10,8 @@ from fastapi.testclient import TestClient
 from app.auth import Claims, create_token
 from app.config import settings
 from app.main import app
+from app.normalizers.common import Event
+from conftest import delete_events, store_events
 
 NOW = datetime.now(timezone.utc).replace(microsecond=0)
 
@@ -43,25 +44,26 @@ def env():
         pytest.skip("Postgres not reachable; run `make up` first")
     tenant, other = f"s_{uuid.uuid4().hex[:8]}", f"o_{uuid.uuid4().hex[:8]}"
 
-    async def setup(c):
-        for mins, src, act, sev, ip, user, host, et, tags, raw in ROWS:
-            await c.execute(
-                """INSERT INTO events (ts, tenant, source, action, severity, src_ip, username, host, event_type, _tags, raw)
-                   VALUES ($1,$2,$3,$4,$5,$6::inet,$7,$8,$9,$10,$11)""",
-                NOW - timedelta(minutes=mins), tenant, src, act, sev, ip, user, host, et, tags, json.dumps(raw))
-        # Same IP and user in another tenant: must never show up.
-        await c.execute("INSERT INTO events (ts, tenant, source, src_ip, username, raw) VALUES ($1,$2,'ad','203.0.113.50','administrator','{}')",
-                        NOW - timedelta(minutes=1), other)
-        return await c.fetchval("SELECT id FROM events WHERE tenant = $1", other)
-    other_id = _db(setup)
+    # Stored through the app's write path (not raw SQL) so they reach every event store:
+    # search reads ClickHouse when it's configured.
+    store_events([Event(ts=NOW - timedelta(minutes=mins), tenant=tenant, source=src, action=act, severity=sev,
+                        src_ip=ip, user=user, host=host, event_type=et, tags=tags, raw=raw)
+                  for mins, src, act, sev, ip, user, host, et, tags, raw in ROWS]
+                 # Same IP and user in another tenant: must never show up.
+                 + [Event(ts=NOW - timedelta(minutes=1), tenant=other, source="ad", src_ip="203.0.113.50",
+                          user="administrator", raw={})])
 
     token = create_token(Claims(sub="t", role="viewer", tenant=tenant))
     with TestClient(app) as client:
+        # The other tenant's event id, as that tenant sees it (ids are given by the event store).
+        other_token = create_token(Claims(sub="o", role="viewer", tenant=other))
+        other_id = client.get("/api/events", headers={"Authorization": f"Bearer {other_token}"}).json()["events"][0]["id"]
+
         def search(**params):
             r = client.get("/api/events", params=params, headers={"Authorization": f"Bearer {token}"})
             return r
         yield search, client, token, other_id
-    _db(lambda c: c.execute("DELETE FROM events WHERE tenant = ANY($1)", [tenant, other]))
+    delete_events([tenant, other])
     _db(lambda c: c.execute("DELETE FROM alerts WHERE tenant = ANY($1)", [tenant, other]))
 
 

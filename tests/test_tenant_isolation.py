@@ -4,7 +4,6 @@ This is the security property reviewers will try to break, so it is tested over 
 exactly as a client would call it.
 """
 import asyncio
-import json
 import uuid
 from datetime import datetime, timezone
 
@@ -15,6 +14,8 @@ from fastapi.testclient import TestClient
 from app.auth import hash_password
 from app.config import settings
 from app.main import app
+from app.normalizers.common import Event
+from conftest import delete_events, store_events
 
 PASSWORD = "test-password-1"
 
@@ -47,11 +48,11 @@ def world():
         for name, role, tenant in users.values():
             await c.execute("INSERT INTO users (username, password_hash, role, tenant) VALUES ($1,$2,$3,$4)",
                             name, pw_hash, role, tenant)
-        for tenant in (ta, tb):
-            for i in range(3):
-                await c.execute("INSERT INTO events (ts, tenant, source, event_type, raw) VALUES ($1,$2,'api',$3,$4)",
-                                datetime.now(timezone.utc), tenant, f"e{i}", json.dumps({"tenant": tenant}))
     _db(setup)
+    # Events go through the app's write path so they land in every event store (ClickHouse too).
+    store_events([Event(ts=datetime.now(timezone.utc), tenant=tenant, source="api", event_type=f"e{i}",
+                        raw={"tenant": tenant, "i": i})
+                  for tenant in (ta, tb) for i in range(3)])
 
     with TestClient(app) as client:
         def login(who):
@@ -61,12 +62,12 @@ def world():
         yield client, login, ta, tb
 
     async def cleanup(c):
-        await c.execute("DELETE FROM events WHERE tenant = ANY($1)", [ta, tb])
         await c.execute("DELETE FROM users WHERE username = ANY($1)", [u[0] for u in users.values()])
         # Failed sign-ins made by these tests (TestClient's address is "testclient"), so repeated
         # test runs never add up to a lockout of the real admin account.
         await c.execute("DELETE FROM login_failures WHERE ip = 'testclient'")
     _db(cleanup)
+    delete_events([ta, tb])
 
 
 def tenants_in(resp) -> set[str]:

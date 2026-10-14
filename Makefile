@@ -8,7 +8,7 @@ SITE := $(or $(call env,SITE_ADDRESS),localhost)
 KEY_A := $(or $(shell sed -n 's/^SEED_API_KEYS=.*demoA=\([^,]*\).*/\1/p' .env 2>/dev/null),lm_demoA_dev_key_change_me)
 KEY_B := $(or $(shell sed -n 's/^SEED_API_KEYS=.*demoB=\([^,]*\).*/\1/p' .env 2>/dev/null),lm_demoB_dev_key_change_me)
 
-.PHONY: up down seed test logs ps health retention demo simulate ch-backfill
+.PHONY: up down seed test logs ps health retention demo simulate ch-backfill ch-rebuild
 
 # Create .env from the example on first run so `make up` works out of the box. Secrets get
 # fresh random values (the backend refuses the example JWT_SECRET, and no two installs should
@@ -45,6 +45,10 @@ retention: .env
 # Copy events already in Postgres into ClickHouse (once, after adding ClickHouse; safe to rerun)
 ch-backfill: .env
 	$(COMPOSE) exec backend python -m app.ch_backfill
+
+# Empty ClickHouse's copy and copy everything again from Postgres (only while Postgres has every event)
+ch-rebuild: .env
+	$(COMPOSE) exec backend python -m app.ch_backfill --rebuild
 
 # Load every sample (timestamps moved to "now") through syslog, the JSON API and file upload
 demo: .env

@@ -4,6 +4,7 @@ Values never go into the SQL text: queries use ClickHouse's typed placeholders, 
 `WHERE tenant = {tenant:String}`, and the values travel separately as `param_tenant=...`,
 so search input can't inject SQL. Same rule as the Postgres side.
 """
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -37,12 +38,14 @@ def _quote(v: Any) -> str:
 class ClickHouse:
     def __init__(self) -> None:
         self._http: httpx.AsyncClient | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     @property
     def enabled(self) -> bool:
         return bool(settings.clickhouse_url)
 
     async def connect(self) -> None:
+        self._loop = asyncio.get_running_loop()
         self._http = httpx.AsyncClient(
             base_url=settings.clickhouse_url,
             auth=(settings.clickhouse_user, settings.clickhouse_password),
@@ -51,12 +54,15 @@ class ClickHouse:
         )
 
     async def close(self) -> None:
-        if self._http:
+        if self._http and self._loop is asyncio.get_running_loop():
             await self._http.aclose()
-            self._http = None
+        self._http = None
 
     async def _post(self, sql: str, params: dict[str, Any] | None, body: bytes | None = None, **settings_) -> str:
-        assert self._http, "ClickHouse not connected"
+        # Connect on first use, and again if the event loop changed: an HTTP client belongs to the
+        # loop that made it (scripts and tests run several loops one after another).
+        if self._http is None or self._loop is not asyncio.get_running_loop():
+            await self.connect()
         query = {"query": sql, **{f"param_{k}": _param(v) for k, v in (params or {}).items()}, **settings_}
         r = await self._http.post("/", params=query, content=body)
         if r.status_code != 200:

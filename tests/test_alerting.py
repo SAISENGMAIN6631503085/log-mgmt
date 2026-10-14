@@ -20,6 +20,8 @@ from app.alerting import merge_bursts, run_once
 from app.auth import Claims, create_token
 from app.config import settings
 from app.main import app
+from app.normalizers.common import Event
+from conftest import delete_events, store_events
 
 T0 = datetime(2026, 10, 12, 10, 0, tzinfo=timezone.utc)
 
@@ -68,21 +70,18 @@ def tenant():
     yield t
 
     async def cleanup(c):
-        await c.execute("DELETE FROM events WHERE tenant LIKE $1", t + "%")
         await c.execute("DELETE FROM alerts WHERE tenant LIKE $1", t + "%")
     _run(cleanup)
+    delete_events([t, t + "_b"])
 
 
 def add_failures(tenant, ip, minutes_ago: list[float], tag="auth_failure", user="administrator"):
+    # Through the app's write path, so the events reach every event store (the alert worker
+    # reads ClickHouse when it's configured). Distinct raw per event: they're separate logins.
     now = datetime.now(timezone.utc)
-
-    async def ins(c):
-        for m in minutes_ago:
-            await c.execute(
-                """INSERT INTO events (ts, tenant, source, action, src_ip, username, _tags, raw)
-                   VALUES ($1, $2, 'ad', 'login', $3::inet, $4, $5, '{}')""",
-                now - timedelta(minutes=m), tenant, ip, user, [tag])
-    _run(ins)
+    store_events([Event(ts=now - timedelta(minutes=m), tenant=tenant, source="ad", action="login",
+                        src_ip=ip, user=user, tags=[tag], raw={"n": i, "at": m})
+                  for i, m in enumerate(minutes_ago)])
 
 
 def alerts_for(tenant):

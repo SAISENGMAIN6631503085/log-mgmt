@@ -4,7 +4,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from .. import db
+from .. import ch_search, db
+from ..clickhouse import ch
 from ..auth import scoped_tenant
 from ..normalizers.common import Action, Source
 from ..search import SearchFilters, build_search, encode_cursor
@@ -56,29 +57,44 @@ async def search_events(
                             src_ip=src_ip, dst_ip=dst_ip, user=user, host=host, country=country, event_type=event_type,
                             tag=tag, q=q, cursor=cursor, limit=limit)
     try:
-        sql, args = build_search(tenant, filters)
+        if ch.enabled:  # logs are searched in ClickHouse when it's configured
+            sql, params = ch_search.build_ch_search(tenant, filters)
+        else:
+            sql, args = build_search(tenant, filters)
     except ValueError as exc:  # bad IP/CIDR or cursor
         raise HTTPException(422, str(exc)) from None
 
-    async with db.pool.acquire() as conn:
-        rows = await conn.fetch(sql, *args)
+    if ch.enabled:
+        rows = [ch_search.row_to_api(r) for r in await ch.query(sql, params)]
+    else:
+        async with db.pool.acquire() as conn:
+            rows = [row_to_api(r) for r in await conn.fetch(sql, *args)]
 
     has_more = len(rows) > limit
     rows = rows[:limit]
+    last = rows[-1] if rows else None
     return {
         "tenant": tenant,
         "from": start.isoformat(),
         "to": end.isoformat(),
-        "events": [row_to_api(r) for r in rows],
-        "next_cursor": encode_cursor(rows[-1]["ts"], rows[-1]["id"]) if has_more else None,
+        "events": rows,
+        "next_cursor": encode_cursor(datetime.fromisoformat(last["@timestamp"]), last["id"]) if has_more else None,
     }
 
 
 @router.get("/{event_id}")
 async def get_event(event_id: int, tenant: str = Depends(scoped_tenant)) -> dict[str, Any]:
-    async with db.pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT * FROM events WHERE id = $1 AND tenant = $2", event_id, tenant)
-    if row is None:
+    if ch.enabled:
+        # Ids are unsigned 64-bit in ClickHouse; anything outside that range can't exist.
+        rows = [] if not 0 <= event_id < 2 ** 63 else await ch.query(
+            "SELECT * FROM events WHERE tenant = {tenant:String} AND id = {id:UInt64} LIMIT 1",
+            {"tenant": tenant, "id": event_id})
+        event = ch_search.row_to_api(rows[0]) if rows else None
+    else:
+        async with db.pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM events WHERE id = $1 AND tenant = $2", event_id, tenant)
+        event = row_to_api(row) if row else None
+    if event is None:
         # 404 (not 403) for another tenant's event: don't confirm that the id exists.
         raise HTTPException(404, "event not found")
-    return row_to_api(row)
+    return event

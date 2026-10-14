@@ -15,6 +15,8 @@ from app.alerting import run_once
 from app.auth import Claims, create_token
 from app.config import settings
 from app.main import app
+from app.normalizers.common import Event
+from conftest import delete_events, store_events
 
 
 def _run(fn):
@@ -38,22 +40,18 @@ def tenant():
     yield t
 
     async def cleanup(c):
-        for table in ("events", "alerts", "rule_settings"):
+        for table in ("alerts", "rule_settings"):
             await c.execute(f"DELETE FROM {table} WHERE tenant LIKE $1", t + "%")
     _run(cleanup)
+    delete_events([t, t + "_b"])
 
 
 def add(tenant, n, *, source, tags=(), severity=None, ip=None, host=None, minutes_ago=0.0):
+    # Through the app's write path, so the events reach every event store.
     now = datetime.now(timezone.utc)
-
-    async def ins(c):
-        for i in range(n):
-            await c.execute(
-                """INSERT INTO events (ts, tenant, source, severity, src_ip, host, _tags, raw)
-                   VALUES ($1, $2, $3, $4, $5::inet, $6, $7, $8)""",
-                now - timedelta(minutes=minutes_ago, seconds=i), tenant, source, severity, ip, host,
-                list(tags), {"i": i})
-    _run(ins)
+    store_events([Event(ts=now - timedelta(minutes=minutes_ago, seconds=i), tenant=tenant, source=source,
+                        severity=severity, src_ip=ip, host=host, tags=list(tags), raw={"i": i, "at": minutes_ago})
+                  for i in range(n)])
 
 
 def alerts_for(tenant):
