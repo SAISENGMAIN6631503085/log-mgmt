@@ -1,6 +1,5 @@
 """Dashboard stats endpoint (real Postgres; skipped if it isn't running)."""
 import asyncio
-import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -11,7 +10,9 @@ from fastapi.testclient import TestClient
 from app.auth import Claims, create_token
 from app.config import settings
 from app.main import app
+from app.normalizers.common import Event
 from app.routers.stats import bucket_for
+from conftest import delete_events, store_events
 
 
 @pytest.mark.parametrize("span,bucket", [
@@ -48,18 +49,17 @@ def env():
         (200, "aws", 2, None, []),
     ]
 
-    async def setup(c):
-        for i, (m, src, sev, ip, tags) in enumerate(rows):
-            await c.execute("""INSERT INTO events (ts, tenant, source, severity, src_ip, event_type, _tags, raw)
-                               VALUES ($1,$2,$3,$4,$5::inet,$6,$7,$8)""",
-                            now - timedelta(minutes=m), t, src, sev, ip, f"type{i % 2}", tags, json.dumps({"i": i}))
-        await c.execute("INSERT INTO events (ts, tenant, source, raw) VALUES ($1, $2, 'api', '{}')", now, other)
-        await c.execute("""INSERT INTO alerts (tenant, rule_id, rule_name, severity, event_count, window_start, window_end)
-                           VALUES ($1, 'r', 'r', 7, 5, $2, $2)""", t, now)
-    _db(setup)
+    # Same events as before, stored through the app's write path (not raw SQL) so they reach
+    # every event store: the dashboard reads ClickHouse when it's configured.
+    store_events([Event(ts=now - timedelta(minutes=m), tenant=t, source=src, severity=sev, src_ip=ip,
+                        event_type=f"type{i % 2}", tags=tags, raw={"i": i})
+                  for i, (m, src, sev, ip, tags) in enumerate(rows)]
+                 + [Event(ts=now, tenant=other, source="api", raw={})])
+    _db(lambda c: c.execute("""INSERT INTO alerts (tenant, rule_id, rule_name, severity, event_count, window_start, window_end)
+                               VALUES ($1, 'r', 'r', 7, 5, $2, $2)""", t, now))
     with TestClient(app) as client:
         yield client, t, other
-    _db(lambda c: c.execute("DELETE FROM events WHERE tenant = ANY($1)", [t, other]))
+    delete_events([t, other])
     _db(lambda c: c.execute("DELETE FROM alerts WHERE tenant = $1", t))
 
 
@@ -151,3 +151,36 @@ def test_source_filter(env):
     assert sum(p["n"] for p in d["timeline"]) == 2
     d2 = get(client, t, source=["ad", "aws"]).json()
     assert d2["totals"]["events"] == 3
+
+
+def test_clickhouse_and_postgres_give_the_same_numbers(env):
+    """The migration check: for the same events, the dashboard computed by ClickHouse (per-minute
+    totals + raw table) must equal the one computed by Postgres, field by field."""
+    from app import ch_stats
+    from app.clickhouse import ch
+    from app.routers.stats import _postgres_stats
+    if not ch.enabled:
+        pytest.skip("ClickHouse not configured")
+    client, t, _ = env
+    end = datetime.now(timezone.utc)
+    start, bucket = end - timedelta(hours=24), timedelta(hours=1)
+
+    async def both():
+        from app import db as app_db
+        await app_db.connect()
+        try:
+            return (await ch_stats.compute(t, start, end, [], bucket),
+                    await _postgres_stats(t, start, end, [], bucket))
+        finally:
+            await app_db.disconnect()
+    from_ch, from_pg = asyncio.run(both())
+    for key in from_pg:
+        if key != "engine":
+            assert from_ch[key] == from_pg[key], key
+    assert (from_ch["engine"]["name"], from_pg["engine"]["name"]) == ("clickhouse", "postgres")
+
+
+def test_dashboard_says_which_engine_answered(env):
+    from app.clickhouse import ch
+    client, t, _ = env
+    assert get(client, t).json()["engine"]["name"] == ("clickhouse" if ch.enabled else "postgres")

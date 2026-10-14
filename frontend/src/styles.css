@@ -728,3 +728,5 @@ th .short { display: none; }
 @media (max-width: 900px) {
   .nav a.active::before { left: 25%; right: 25%; top: auto; bottom: -10px; width: auto; height: 3px; border-radius: 3px 3px 0 0; }
 }
+.page-header p.engine-note { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 2px 10px;
+  border-radius: 12px; background: var(--accent-wash); color: var(--accent-text); font-size: 12px; font-weight: 500; }

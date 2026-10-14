@@ -161,6 +161,7 @@ export type Stats = {
   top_users: { key: string; n: number; auth_failures: number }[];
   top_countries: { key: string; n: number; auth_failures: number }[];
   top_event_types: { key: string; n: number }[];
+  engine: { name: "clickhouse" | "postgres"; ms: number }; // which database computed this, and how fast
 };
 
 export type TimelinePoint = {

@@ -246,6 +246,12 @@ export function Dashboard({ tenant, tenantName }: { tenant: string | undefined; 
             What happened in <strong>{tenantName}</strong> in the {rangeLong}
             {source ? <> from <strong>{sourceLabel(source)}</strong></> : null}. Click anything to see the events behind it.
           </p>
+          {stats?.engine && (
+            <p className="engine-note" title="Logs are stored and summarized in ClickHouse; users, keys and alerts live in PostgreSQL.">
+              <Icon name="activity" size={13} />
+              Summarized by {stats.engine.name === "clickhouse" ? "ClickHouse" : "PostgreSQL"} in {stats.engine.ms} ms
+            </p>
+          )}
         </div>
         <div className="header-controls">
           <label className="inline-select">

@@ -1,11 +1,13 @@
 """Dashboard numbers. One endpoint, several small aggregate queries, all tenant-scoped."""
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from .. import db, geoip
+from .. import ch_stats, db, geoip
 from ..auth import Claims, current_user, require_admin, scoped_tenant
+from ..clickhouse import ch
 from ..config import settings
 from ..normalizers.common import Source
 
@@ -34,6 +36,26 @@ async def stats(
     if start >= end:
         raise HTTPException(422, "`from` must be before `to`")
     bucket = bucket_for(end - start)
+    async with db.pool.acquire() as conn:
+        open_alerts = await conn.fetchval(
+            "SELECT count(*) FROM alerts WHERE tenant = $1 AND status = 'open'", tenant)
+    # Logs are summarized by ClickHouse when it's configured; alerts always live in Postgres.
+    data = (await ch_stats.compute(tenant, start, end, list(source), bucket) if ch.enabled
+            else await _postgres_stats(tenant, start, end, source, bucket))
+    data["totals"]["open_alerts"] = open_alerts
+    return {
+        "tenant": tenant,
+        "from": start.isoformat(),
+        "to": end.isoformat(),
+        "sources": source,
+        "bucket_seconds": int(bucket.total_seconds()),
+        **data,
+    }
+
+
+async def _postgres_stats(tenant: str, start: datetime, end: datetime, source: list[str], bucket: timedelta) -> dict[str, Any]:
+    """The same numbers from the Postgres events table (used until ClickHouse is configured)."""
+    began = time.perf_counter()
     # $1 tenant, $2 from, $3 to, $4 sources (NULL = all) in every events query below.
     scope = (tenant, start, end, source or None)
 
@@ -44,8 +66,6 @@ async def stats(
                       count(*) FILTER (WHERE severity >= 7) AS high_severity,
                       count(DISTINCT src_ip) AS unique_src_ips
                FROM events WHERE tenant = $1 AND ts >= $2 AND ts < $3 AND ($4::text[] IS NULL OR source = ANY($4))""", *scope)
-        open_alerts = await conn.fetchval(
-            "SELECT count(*) FROM alerts WHERE tenant = $1 AND status = 'open'", tenant)
         # generate_series + LEFT JOIN: empty buckets show as 0 instead of disappearing,
         # so a quiet hour looks quiet on the chart rather than being skipped.
         # Each bucket is split by severity band (for the stacked chart) and also counts
@@ -116,12 +136,7 @@ async def stats(
     severity_order = ["critical", "high", "medium", "low", "unknown"]
     sev = {r["key"]: r["n"] for r in by_severity}
     return {
-        "tenant": tenant,
-        "from": start.isoformat(),
-        "to": end.isoformat(),
-        "sources": source,
-        "bucket_seconds": int(bucket.total_seconds()),
-        "totals": dict(totals) | {"open_alerts": open_alerts},
+        "totals": dict(totals),
         "previous": dict(previous),
         "timeline": [dict(r) | {"t": r["t"].isoformat()} for r in timeline],
         "source_timeline": [{"source": r["source"], "t": r["t"].isoformat(), "n": r["n"]} for r in source_timeline],
@@ -132,6 +147,7 @@ async def stats(
         "top_users": [dict(r) for r in top_users],
         "top_countries": [dict(r) for r in top_countries],
         "top_event_types": [dict(r) for r in top_event_types],
+        "engine": {"name": "postgres", "ms": round((time.perf_counter() - began) * 1000)},
     }
 
 

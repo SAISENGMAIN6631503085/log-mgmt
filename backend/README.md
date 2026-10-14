@@ -67,9 +67,16 @@ Syslog (`syslog.py`):
 Logs are a column-store job: huge, written once, summarized all the time. So events are moving to
 ClickHouse, and Postgres will keep the small data that changes (users, keys, alerts, settings).
 
-**Phase 1 (now):** every stored batch is also written to ClickHouse (`app/ch_events.py`). Postgres
-is still the source of truth, so a ClickHouse error is logged and never blocks ingest; `make
+**Phase 1:** every stored batch is also written to ClickHouse (`app/ch_events.py`). Postgres is
+still the source of truth, so a ClickHouse error is logged and never blocks ingest; `make
 ch-backfill` (also run on every deploy) copies anything missing.
+
+**Phase 2 (now):** the dashboard (`/api/stats`) is computed by ClickHouse (`app/ch_stats.py`).
+Counts, timeline and breakdowns read `events_minutely`, per-minute totals per (tenant, source) that
+a **materialized view** adds to on every insert (a `SummingMergeTree`, same TTL), so they cost the
+same at any volume; precision is one minute. Top lists read the events table (sorted by tenant and
+time). The response says which engine answered and how long it took (`engine`), shown on the
+Overview. `tests/test_stats.py` checks that ClickHouse and Postgres return identical numbers.
 
 The table (`app/ch_schema.py`, created at startup): `ReplacingMergeTree`, `PARTITION BY` day,
 `ORDER BY (tenant, ts, fingerprint)`, `TTL` = `RETENTION_DAYS`, `LowCardinality` columns, bloom-filter
