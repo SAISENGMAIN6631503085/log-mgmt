@@ -5,9 +5,51 @@ import { IngestPreview } from "../components/IngestPreview";
 
 // Split layout: a dark product panel showing what the tool does (logs from many systems turned
 // into one format, and an alert when they add up to an attack) and a plain sign-in form.
+// The headline types itself once when the page opens; the line under it fades in when the typing
+// is done, and the cursor keeps blinking softly at the end. The whole sentence is always laid out,
+// with the part not typed yet invisible, so lines break in the same places from the first letter
+// and nothing jumps. The cursor is glued to the last typed letter (spaces wait until the next
+// letter), so it never floats after a space or drops to a line of its own. Screen readers get the
+// whole sentence at once; with reduced motion everything is shown complete.
+function useTyping(text: string) {
+  const still = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const [count, setCount] = useState(still ? text.length : 0);
+  useEffect(() => {
+    if (still || count >= text.length) return;
+    // A person's rhythm: a beat before starting, ~85 ms a letter, a little longer between words
+    // and after the comma.
+    const prev = text[count - 1];
+    const delay = count === 0 ? 600 : prev === "," ? 420 : prev === " " ? 150 : 85;
+    const id = window.setTimeout(() => setCount((n) => n + 1), delay);
+    return () => window.clearTimeout(id);
+  }, [count, still, text]);
+  return { count, done: count >= text.length, still };
+}
+
+function TypedHeading({ text, count, still }: { text: string; count: number; still: boolean }) {
+  const typed = text.slice(0, count).trimEnd(); // trailing spaces are shown with the next letter
+  const caret = <span className={`typed-caret${still ? " is-still" : ""}`} />;
+  return (
+    <h2 aria-label={text}>
+      <span aria-hidden="true">
+        {typed.length === 0 ? caret : (
+          <>
+            {typed.slice(0, -1)}
+            <span className="typed-tail">{typed.slice(-1)}{caret}</span>
+          </>
+        )}
+        <span className="typed-rest">{text.slice(typed.length)}</span>
+      </span>
+    </h2>
+  );
+}
+
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
+const HEADLINE = "Logs from every system, read as one";
+
 export function Login({ onLogin }: { onLogin: (user: User) => void }) {
+  const typing = useTyping(HEADLINE);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -63,9 +105,10 @@ export function Login({ onLogin }: { onLogin: (user: User) => void }) {
         </div>
 
         <div className="login-hero-copy">
-          <h2>Every system writes logs its own way. Read them all as one.</h2>
-          <p>Firewalls, Windows servers, AWS, Microsoft 365 and CrowdStrike are collected, put into one
-            shape you can search together, and watched for attacks that only show up when you see them side by side.</p>
+          <TypedHeading text={HEADLINE} count={typing.count} still={typing.still} />
+          <p className={`after-typing${typing.done ? " is-shown" : ""}`}>
+            Firewalls, Windows, AWS, Microsoft 365 and CrowdStrike, searched together and watched for attacks.
+          </p>
         </div>
 
         <IngestPreview />

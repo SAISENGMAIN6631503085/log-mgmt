@@ -607,6 +607,20 @@ tr.revoked td { color: var(--muted); }
 .login-hero-copy h2 { margin: 0 0 14px; max-width: 13em; text-wrap: balance; font-size: clamp(30px, 3.1vw, 42px); line-height: 1.1;
   font-weight: 600; letter-spacing: -0.03em; color: #ffffff; }
 .login-hero-copy p { margin: 0; max-width: 34em; color: #a3adba; font-size: 15px; line-height: 1.65; }
+/* Typed headline: the untyped rest is laid out but invisible, so line breaks never move. The
+   cursor is a zero-width box glued to the last typed letter (nowrap), drawn with ::after: about
+   cap-height tall, sitting on the baseline, fading softly rather than blinking hard. */
+.typed-rest { visibility: hidden; }
+.typed-tail { white-space: nowrap; }
+.typed-caret { display: inline-block; position: relative; width: 0; height: 0.72em; vertical-align: baseline; }
+.typed-caret::after { content: ""; position: absolute; left: 0.07em; bottom: 0; width: 0.1em; height: 100%;
+  border-radius: 1px; background: #2dd4bf; animation: caret-fade 1.1s ease-in-out infinite alternate; }
+.typed-caret.is-still::after { animation: none; }
+@keyframes caret-fade { from { opacity: 1; } to { opacity: 0.12; } }
+/* The line under the headline waits for the typing, then fades in (its space is kept meanwhile). */
+.after-typing { opacity: 0; transform: translateY(4px); transition: opacity 500ms ease, transform 500ms ease; }
+.after-typing.is-shown { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) { .after-typing { opacity: 1; transform: none; transition: none; } }
 /* The ingest preview: raw logs arrive in their own formats and snap into one row shape.
    Raw text is mono and dim, converted rows are sans and aligned, so the change of type itself
    shows "many formats -> one format". Fixed graphite colours, like the rest of the panel. */
