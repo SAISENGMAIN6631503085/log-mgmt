@@ -104,7 +104,8 @@ export function TenantSwitcher({ current, home, tenants, onChange, onMakeDefault
     };
   }, [open]);
 
-  const list = tenants.length ? tenants : [home];
+  // The default first (the one you come back to most), then the rest in the server's A-Z order.
+  const list = [home, ...tenants.filter((t) => t !== home)];
   return (
     <div className="user-menu" ref={ref}>
       <button type="button" className={`tenant-picker ${current !== home ? "is-switched" : ""}`}
