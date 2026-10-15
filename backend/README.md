@@ -104,6 +104,13 @@ Demo keys come from `SEED_API_KEYS` and are created by `make seed`.
 `Authorization: Bearer <token>`. The token's claims are `sub`, `role` (admin|viewer) and `tenant`.
 `GET /api/auth/me` shows the current claims.
 
+**Admin default tenant** (migration 008): `PUT /api/auth/default-tenant {"tenant": "demoB"}` sets the
+tenant an admin sees after signing in (the website's "Make demoB my default"). It's admin only (403
+for viewers), only accepts tenants that exist (404 otherwise), and returns a fresh token carrying
+the new tenant so it applies at once. For an admin the token's `tenant` is just the one shown when
+no `?tenant=` is passed, so changing it grants nothing new. A viewer's tenant is the security
+boundary and never changes: `default_tenant` is ignored for viewers even if set in the database.
+
 **Sign-in throttling** (migration 006, `routers/auth.py`): 5 failed sign-ins for one username within
 5 minutes pause that username, and 20 from one client address pause that address, until the oldest
 counted failure leaves the window (sliding, so no unlock job). The answer is `429` with a

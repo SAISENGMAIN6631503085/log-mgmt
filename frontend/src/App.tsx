@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, api, clearSession, loadSession, User } from "./api";
+import { Alert, api, clearSession, loadSession, saveSession, User } from "./api";
 import { Icon, IconName } from "./components/Icon";
 import { TenantSwitcher, ThemeSwitch, UserMenu } from "./components/TopBar";
 import { AddLogs } from "./pages/AddLogs";
@@ -94,6 +94,15 @@ export default function App() {
 
   if (!user) return <Login onLogin={(u) => { setTenant(undefined); setUser(u); }} />;
 
+  // Admin only. The server answers with a fresh token whose tenant is the new default, so the
+  // change applies now and at every later sign-in; we're then simply "on the default" again.
+  async function makeDefault(t: string) {
+    const s = await api<{ access_token: string; user: User }>("/api/auth/default-tenant", { method: "PUT", body: { tenant: t } });
+    saveSession(s.access_token, s.user);
+    setTenant(undefined);
+    setUser(s.user);
+  }
+
   function logout() {
     clearSession();
     setTenant(undefined);
@@ -142,7 +151,7 @@ export default function App() {
           )}
           {user.role === "admin" ? (
             <TenantSwitcher current={activeTenant} home={user.tenant} tenants={tenants}
-                            onChange={(t) => setTenant(t === user.tenant ? undefined : t)} />
+                            onChange={(t) => setTenant(t === user.tenant ? undefined : t)} onMakeDefault={makeDefault} />
           ) : (
             <span className="tenant-picker static" title="Your organization (fixed for your account)">
               <Icon name="building" size={16} />

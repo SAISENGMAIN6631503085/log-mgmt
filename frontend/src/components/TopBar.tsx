@@ -69,11 +69,28 @@ export function UserMenu({ user, onSignOut }: { user: User; onSignOut: () => voi
 }
 
 /** Admin tenant switcher: a menu (not a bare <select>) so the current tenant, the admin's
- *  default, and the choices are all explicit. Viewers get a fixed label instead. */
-export function TenantSwitcher({ current, home, tenants, onChange }: {
+ *  default (the one that opens after sign-in, which they can change here), and the choices are all
+ *  explicit. Viewers get a fixed label instead. */
+export function TenantSwitcher({ current, home, tenants, onChange, onMakeDefault }: {
   current: string; home: string; tenants: string[]; onChange: (t: string) => void;
+  onMakeDefault: (t: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => setError(null), [open, current]);
+
+  async function makeDefault() {
+    setSaving(true);
+    try {
+      await onMakeDefault(current);
+      setOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -107,9 +124,16 @@ export function TenantSwitcher({ current, home, tenants, onChange }: {
                     onClick={() => { onChange(t); setOpen(false); }}>
               <span className="check">{t === current && <Icon name="check" size={16} />}</span>
               <span className="tenant-name">{t}</span>
-              {t === home && <span className="menu-tag">your default</span>}
+              {t === home && <span className="menu-tag" title="Opens after you sign in">default</span>}
             </button>
           ))}
+          {current !== home && (
+            <button type="button" role="menuitem" className="menu-item make-default" onClick={makeDefault} disabled={saving}>
+              <span className="check" />
+              <span>{saving ? "Saving…" : <>Make <strong>{current}</strong> my default</>}</span>
+            </button>
+          )}
+          {error && <div className="menu-note error-text" role="alert">{error}</div>}
           <div className="menu-note">As an administrator you can view every tenant. Viewers only ever see their own.</div>
         </div>
       )}

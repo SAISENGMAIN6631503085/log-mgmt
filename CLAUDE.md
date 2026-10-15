@@ -58,6 +58,7 @@ Duplicates: same fingerprint (sha256 of tenant + source + raw) at the same `ts`;
 - JWT login; claims: `sub`, `role` (admin|viewer), `tenant`
 - **Tenant filter is always applied server-side from the JWT**, never trusted from query/header for viewers
 - Admin may pass `?tenant=` to switch tenants; viewer requests for another tenant → 403
+- Admins can choose their default tenant (`PUT /api/auth/default-tenant`, `users.default_tenant`); viewers can't
 - Passwords hashed with bcrypt/argon2; secrets only from env vars; never commit `.env`
 - Seed users: admin, viewerA (tenant demoA), viewerB (tenant demoB)
 - Ingest API keys stored as SHA-256 hashes, shown once, revocable; sign-in throttling (5 failures per

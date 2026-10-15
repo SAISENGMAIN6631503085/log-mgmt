@@ -14,7 +14,9 @@ Open https://localhost and sign in as `admin`, `viewerA` or `viewerB` (passwords
 The layout is a sidebar for the pages (with a live count of open alerts) plus a **top bar** for
 account-level controls, like most web apps:
 - **Tenant**: admins get a "Viewing demoB ▾" menu that shows the current tenant with a ✓ and marks
-  their default. The button is outlined whenever they're not on their default tenant. The choice
+  their **default** (the tenant that opens after sign-in). While viewing another tenant, **"Make demoB
+  my default"** changes it (saved on the server, so it applies on every device and at the next
+  sign-in). The button is outlined whenever they're not on their default tenant. The choice
   survives a reload (per browser tab) and is cleared on sign-out. Viewers see their tenant, which they can't change.
   Every page subtitle names the tenant being shown.
 - **Light/dark switch**: two states, sun and moon. The first visit follows the OS setting; after that the choice is remembered.

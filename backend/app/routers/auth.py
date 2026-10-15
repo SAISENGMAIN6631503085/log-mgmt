@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from .. import db
-from ..auth import Claims, check_login, create_token, current_user
+from ..auth import Claims, check_login, create_token, current_user, require_admin
 from ..config import settings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -53,16 +53,41 @@ async def login(body: LoginRequest, request: Request) -> LoginResponse:
             # Same answer whether or not the account exists, so the lock reveals nothing.
             raise HTTPException(429, f"Too many failed sign-ins. Try again in {math.ceil(wait / 60)} "
                                      f"minute{'s' if wait > 60 else ''}.", headers={"Retry-After": str(wait)})
-        row = await conn.fetchrow("SELECT username, password_hash, role, tenant FROM users WHERE username = $1",
-                                  body.username)
+        row = await conn.fetchrow("SELECT username, password_hash, role, tenant, default_tenant FROM users "
+                                  "WHERE username = $1", body.username)
         if not check_login(body.password, row["password_hash"] if row else None):
             await conn.execute("INSERT INTO login_failures (username, ip) VALUES ($1, $2)", username, ip)
             # One message for "no such user" and "wrong password": don't reveal which usernames exist.
             raise HTTPException(401, "invalid username or password")
         # A successful sign-in clears the account's count (the address's count stays).
         await conn.execute("DELETE FROM login_failures WHERE username = $1", username)
-    claims = Claims(sub=row["username"], role=row["role"], tenant=row["tenant"])
+    # An admin's token tenant is just the one they see when they don't pick another, so it follows
+    # their chosen default. A viewer's is always their own tenant (default_tenant is ignored).
+    tenant = row["default_tenant"] if row["role"] == "admin" and row["default_tenant"] else row["tenant"]
+    claims = Claims(sub=row["username"], role=row["role"], tenant=tenant)
+    return _session(claims)
+
+
+def _session(claims: Claims) -> LoginResponse:
     return LoginResponse(access_token=create_token(claims), expires_in=settings.jwt_expire_minutes * 60, user=claims)
+
+
+class DefaultTenantRequest(BaseModel):
+    tenant: str
+
+
+@router.put("/default-tenant", response_model=LoginResponse)
+async def set_default_tenant(body: DefaultTenantRequest, user: Claims = Depends(require_admin)) -> LoginResponse:
+    """Admin only: the tenant to open after signing in. Returns a fresh token carrying it, so the
+    change applies straight away without signing in again."""
+    async with db.pool.acquire() as conn:
+        # Only tenants that exist (the same list as the tenant menu), so a typo can't become the default.
+        known = await conn.fetchval("SELECT EXISTS (SELECT 1 FROM users WHERE tenant = $1 "
+                                    "UNION ALL SELECT 1 FROM api_keys WHERE tenant = $1)", body.tenant)
+        if not known:
+            raise HTTPException(404, f"unknown tenant {body.tenant!r}")
+        await conn.execute("UPDATE users SET default_tenant = $1 WHERE username = $2", body.tenant, user.sub)
+    return _session(Claims(sub=user.sub, role=user.role, tenant=body.tenant))
 
 
 @router.get("/me", response_model=Claims)
