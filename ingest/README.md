@@ -104,7 +104,8 @@ Syslog (`syslog.go`):
   chunks of 300, since the values travel in the URL); `ReplacingMergeTree` on the same key removes
   anything that slips through when it merges.
 - Events stored at their receipt time because their own time was out of range (`time_adjusted`)
-  get a new stored time on every send, so for them the fingerprint **alone** decides. Their real
+  get a new stored time on every send, so for them the fingerprint **alone** decides, matched
+  against any stored copy (including one stored normally while its time was still recent). Their real
   time is inside the original log, which the fingerprint covers, so re-uploading an old file still
   counts as duplicates.
 - The fingerprint text is byte-for-byte what the earlier Python version hashed (non-ASCII as

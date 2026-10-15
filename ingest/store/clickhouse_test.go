@@ -178,6 +178,18 @@ func TestTimeAdjustedEventSentAgainLaterIsADuplicate(t *testing.T) {
 	if n, _ := c.Insert(context.Background(), []*normalize.Event{&again}); n != 0 {
 		t.Fatalf("the same old log sent again was stored again (%d)", n)
 	}
+	// Stored normally while its time was recent, then sent again once it's too old: still a duplicate.
+	recent := event(tenant, map[string]any{"eventTime": "recent-then-old", "eventName": "Upload"})
+	if n, _ := c.Insert(context.Background(), []*normalize.Event{recent}); n != 1 {
+		t.Fatalf("recent: %d", n)
+	}
+	later := *recent
+	later.TS = recent.TS.Add(9 * 24 * time.Hour)
+	later.Tags = []string{normalize.TimeAdjusted}
+	if n, _ := c.Insert(context.Background(), []*normalize.Event{&later}); n != 0 {
+		t.Fatalf("the same log resent after it became too old was stored again (%d)", n)
+	}
+
 	// A different old log is still new.
 	other := *first
 	other.Raw = map[string]any{"eventTime": "2025-08-20T09:11:00Z", "eventName": "CreateUser"}

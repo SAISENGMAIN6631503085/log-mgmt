@@ -77,8 +77,10 @@ func (c *ClickHouse) Ping(ctx context.Context) bool {
 // A duplicate is the same fingerprint at the same time: the same log content at a different time
 // is a new event. Except for events stored at their receipt time because their own time was out of
 // range (tag time_adjusted): their stored time changes with every send, so for them the
-// fingerprint alone decides. That's safe because their real time is part of the original log,
-// which the fingerprint covers; without it, re-uploading an old file would store it again. ClickHouse
+// fingerprint alone decides, matched against any stored copy (whether that copy was stored
+// time-adjusted or, while its time was still recent, normally). That's safe because their real
+// time is part of the original log, which the fingerprint covers; without it, re-uploading an
+// old file would store it again. ClickHouse
 // has no unique constraint, so existing (fingerprint, ts) pairs are looked up first; that keeps
 // counts right at once and lets ingest report "duplicates". The pair is also the table's
 // ORDER BY key, so ReplacingMergeTree removes any repeat that slips through when it merges.
@@ -107,22 +109,17 @@ func (c *ClickHouse) Insert(ctx context.Context, events []*normalize.Event) (int
 	for i := 0; i < len(fpList); i += CheckChunk {
 		chunk := fpList[i:min(i+CheckChunk, len(fpList))]
 		out, err := c.post(ctx,
-			"SELECT DISTINCT fingerprint, toString(ts) AS ts, has(tags, 'time_adjusted') AS adjusted FROM events "+
+			"SELECT DISTINCT fingerprint, toString(ts) AS ts FROM events "+
 				"WHERE tenant IN {tenants:Array(String)} AND fingerprint IN {fps:Array(String)} FORMAT JSONEachRow",
 			map[string]string{"param_tenants": arrayParam(sortedKeys(tenants)), "param_fps": arrayParam(chunk)}, nil)
 		if err != nil {
 			return 0, err
 		}
 		for _, line := range bytes.Split(bytes.TrimSpace(out), []byte("\n")) {
-			var r struct {
-				Fingerprint, Ts string
-				Adjusted        int
-			}
+			var r struct{ Fingerprint, Ts string }
 			if len(line) > 0 && json.Unmarshal(line, &r) == nil {
 				stored[key{r.Fingerprint, r.Ts}] = true
-				if r.Adjusted == 1 {
-					stored[key{r.Fingerprint, adjustedTS}] = true
-				}
+				stored[key{r.Fingerprint, adjustedTS}] = true // any stored copy covers a time-adjusted resend
 			}
 		}
 	}
