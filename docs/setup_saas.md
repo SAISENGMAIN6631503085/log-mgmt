@@ -103,6 +103,10 @@ python3 samples/simulator.py --url https://logs.example.com --verify-tls --no-sy
 | `CADDY_TLS` | `internal` (Caddy's own CA) | email address (Let's Encrypt, auto-renewed) |
 | Browser warning | yes, until Caddy's root is trusted | no |
 | `SYSLOG_BIND` | `0.0.0.0` (LAN devices) | `127.0.0.1`, or firewall-restricted |
+| Syslog from devices | port 514 on the LAN | closed to the internet; devices send over HTTPS with an API key instead |
+| `COMPOSE_PROFILES` | empty (`make simulate` for traffic on demand) | `demo` on the live demo: a simulator keeps data fresh, and the website shows a **Demo data** label |
+| `ALERT_WEBHOOK_URL` | optional (e.g. a webhook.site link to try it) | optional; point it at your own receiver, never at a public test link |
+| Syslog tenant on Docker Desktop (Mac/Windows) | every sender looks like Docker's gateway, so all syslog lands in `DEFAULT_TENANT` | n/a (Linux keeps the real sender IP) |
 | Everything else | identical | identical |
 
 ## 6. Operating it

@@ -4,6 +4,9 @@
 
 **Live demo (SaaS mode): https://14.207.143.101.sslip.io**. Login details are sent separately;
 the passwords and API keys there are not the demo values in this repo.
+On the live demo, **syslog (port 514) is closed on purpose**: syslog has no authentication, so it's
+not exposed to the internet. Try syslog in appliance mode (Quick start below), or send firewall
+logs to the live demo over HTTPS with an API key (`POST /ingest`). Everything else works on both.
 
 A multi-tenant log management / SIEM-lite system:
 - It ingests logs from firewalls, network devices, applications, AWS CloudTrail, Microsoft 365,
