@@ -150,3 +150,20 @@ export function countryName(code: string): string {
     return code;
   }
 }
+
+/** Ref for a <select>: fixes its width to the longest option, measured in its own font, so the box
+ *  doesn't grow and shrink as different options are picked (the styled dropdown otherwise fits
+ *  whatever is picked). Measured once the web fonts have loaded. */
+export function fitToOptions(el: HTMLSelectElement | null) {
+  if (!el) return;
+  const ctx = document.createElement("canvas").getContext("2d");
+  if (!ctx) return;
+  document.fonts.ready.then(() => {
+    const style = getComputedStyle(el);
+    ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const text = Math.max(...Array.from(el.options, (o) => ctx.measureText(o.text).width));
+    const pad = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+      + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
+    el.style.width = `${Math.ceil(text + pad + 2)}px`;
+  });
+}

@@ -3,7 +3,7 @@ import { api, LogEvent, SOURCES } from "../api";
 import { Empty, SeverityBadge } from "../components/Badge";
 import { Country } from "../components/Country";
 import { Icon } from "../components/Icon";
-import { countryName, fmtTime, go, humanize, ipKind, RangeKey, RANGES, rangeParams, Route, SOURCE_LABELS } from "../util";
+import { countryName, fitToOptions, fmtTime, go, humanize, ipKind, RangeKey, RANGES, rangeParams, Route, SOURCE_LABELS } from "../util";
 
 // Filters live in the URL hash (#/events?src_ip=...), so links from the dashboard and
 // alerts pages land on a ready-made search, and a search can be bookmarked or shared.
@@ -20,6 +20,8 @@ export const TAG_LABELS: Record<string, string> = {
   root_activity: "Root account used",
   account_lockout: "Account locked out",
   mail_forwarding_rule: "Email forwarding rule",
+  // The log's own time was too old or in the future, so it was stored at the time it arrived.
+  time_adjusted: "Time adjusted on arrival",
 };
 
 
@@ -125,7 +127,7 @@ export function Events({ route, tenant, tenantName }: { route: Route; tenant: st
               <input value={draft.q ?? ""} onChange={set("q")} aria-label="Search text"
                      placeholder="Search any word, e.g. mimikatz, administrator or a hostname" />
             </label>
-            <select value={draft.range ?? "24h"} onChange={apply("range")} aria-label="Time range">
+            <select ref={fitToOptions} value={draft.range ?? "24h"} onChange={apply("range")} aria-label="Time range">
               {RANGES.map((r) => <option key={r.key} value={r.key}>{r.long[0].toUpperCase() + r.long.slice(1)}</option>)}
             </select>
             <button className="primary" type="submit">Search</button>
@@ -135,21 +137,21 @@ export function Events({ route, tenant, tenantName }: { route: Route; tenant: st
           <div className="filter-row">
             <label className="inline-select">
               <span>Source</span>
-              <select value={draft.source ?? ""} onChange={apply("source")}>
+              <select ref={fitToOptions} value={draft.source ?? ""} onChange={apply("source")}>
                 <option value="">All</option>
                 {SOURCES.map((s) => <option key={s} value={s}>{SOURCE_LABELS[s]}</option>)}
               </select>
             </label>
             <label className="inline-select">
               <span>How serious</span>
-              <select value={draft.severity_min ?? ""} onChange={apply("severity_min")}>
+              <select ref={fitToOptions} value={draft.severity_min ?? ""} onChange={apply("severity_min")}>
                 <option value="">Any</option>
                 {SEVERITY_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </label>
             <label className="inline-select">
               <span>Kind</span>
-              <select value={draft.tag ?? ""} onChange={apply("tag")}>
+              <select ref={fitToOptions} value={draft.tag ?? ""} onChange={apply("tag")}>
                 <option value="">Any</option>
                 {Object.entries(TAG_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
@@ -233,14 +235,14 @@ export function Events({ route, tenant, tenantName }: { route: Route; tenant: st
                         </span>
                       </td>
                       <td className="ip-col">
-                        {e.src_ip && (
+                        {e.src_ip ? (
                           <>
                             <code>{e.src_ip}</code>
                             <span className="cell-sub">{e.src_country ? <Country code={e.src_country} /> : ipKind(e.src_ip)}</span>
                           </>
-                        )}
+                        ) : <NotInLog what="IP address" />}
                       </td>
-                      <td className="clip">{e.user ?? e.host ?? ""}</td>
+                      <td className="clip">{e.user ?? e.host ?? <NotInLog what="user or device" />}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -265,7 +267,7 @@ export function Events({ route, tenant, tenantName }: { route: Route; tenant: st
 }
 
 const FIELD_LABELS: Partial<Record<keyof LogEvent, string>> = {
-  "@timestamp": "Time", source: "Source", vendor: "Vendor", product: "Product", event_type: "Event",
+  "@timestamp": "Time", source: "Source", vendor: "Vendor", product: "Product", event_type: "Event code", // the exact code from the log (what you'd search for); the title shows it in words
   event_subtype: "Detail", action: "Action", rule_name: "Rule", rule_id: "Rule ID",
   src_ip: "From IP", src_country: "From country", src_port: "From port", dst_ip: "To IP", dst_port: "To port", protocol: "Protocol",
   url: "URL", http_method: "HTTP method", status_code: "HTTP status", user: "User", host: "Device",
@@ -279,6 +281,10 @@ const SECTIONS: { title: string; fields: (keyof LogEvent)[] }[] = [
   { title: "Who and where", fields: ["user", "host", "process"] },
   { title: "Cloud", fields: ["cloud_account_id", "cloud_region", "cloud_service"] },
 ];
+
+/** A faint dash for a field this log doesn't have (e.g. AWS service-to-service calls have no
+ *  user or IP), so an empty cell doesn't look like a loading error. The hover says which field. */
+const NotInLog = ({ what }: { what: string }) => <span className="not-in-log" title={`This log has no ${what}`}>–</span>;
 
 function EventDrawer({ event, onClose }: { event: LogEvent; onClose: () => void }) {
   useEffect(() => {
@@ -295,7 +301,6 @@ function EventDrawer({ event, onClose }: { event: LogEvent; onClose: () => void 
         <div className="drawer-head">
           <div>
             <div className="title">{event.event_type ? humanize(event.event_type) : "Event"}</div>
-            {event.event_type && <code className="title-code">{event.event_type}</code>}
             <div className="meta">
               <SeverityBadge severity={event.severity} />
               <span>from {SOURCE_LABELS[event.source] ?? event.source}</span>

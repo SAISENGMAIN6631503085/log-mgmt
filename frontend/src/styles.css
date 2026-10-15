@@ -245,6 +245,25 @@ input, select { height: 36px; background: var(--surface); border: 1px solid var(
   padding: 0 10px; min-width: 0; }
 input::placeholder { color: var(--muted); }
 input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
+/* Dropdowns: our own chevron with room on the right (the browser's sits against the edge). The
+   grey works on light and dark. */
+select { appearance: none; padding-right: 34px; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b95a3' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; }
+/* Where the browser allows it (Chrome 135+), the open list is styled to match the app too;
+   other browsers keep their own list, which still works. */
+@supports (appearance: base-select) {
+  select, ::picker(select) { appearance: base-select; }
+  /* Its width is fixed to the longest option by fitToOptions (util.ts), like a normal dropdown. */
+  select { display: inline-flex; align-items: center; }
+  select::picker-icon { display: none; } /* the chevron above is used instead */
+  ::picker(select) { margin-top: 4px; padding: 4px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--surface); color: var(--text); box-shadow: 0 6px 20px rgba(15, 23, 42, 0.12); }
+  option { padding: 7px 10px; border-radius: 6px; font-size: 14px; cursor: pointer; }
+  option:hover, option:focus-visible { background: var(--surface-2); outline: none; }
+  option:checked { color: var(--accent); font-weight: 600; }
+  option::checkmark { display: none; } /* the teal text already marks the picked one */
+}
 button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 14px;
   background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
   font-weight: 500; cursor: pointer; white-space: nowrap; }
@@ -283,7 +302,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .header-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .inline-select { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 4px 0 12px;
   border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); color: var(--text-2); font-size: 13px; }
-.inline-select select { height: 30px; border: none; background: var(--surface); box-shadow: var(--shadow); font-weight: 500; }
+.inline-select select { height: 30px; border: none; background-color: var(--surface); box-shadow: var(--shadow); font-weight: 500; }
 .grid-2 { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); }
 /* KPI summary: one strip with four cells split by hairlines, not four floating cards. */
 .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); background: var(--surface);
@@ -431,7 +450,7 @@ pre.raw { background: var(--surface-2); border: 1px solid var(--border); padding
 .warn-num { color: var(--critical-text); font-weight: 600; }
 
 /* ==========================================================================
-   Alerts: a triage queue grouped by day. The severity rail is the one coloured element.
+   Alerts: a table, one row per alert; a row opens the detail panel.
    ========================================================================== */
 .triage { color: var(--text-2); }
 .triage strong { color: var(--text); }
@@ -441,43 +460,31 @@ pre.raw { background: var(--surface-2); border: 1px solid var(--border); padding
 .rule-filter > button.on { background: var(--accent); color: var(--on-accent); border-color: transparent; }
 .rule-filter .n { font-variant-numeric: tabular-nums; color: inherit; opacity: 0.65; }
 .rule-filter .rules-link { margin-left: auto; font-size: 13px; }
-.alert-day { display: flex; flex-direction: column; gap: 8px; }
-.alert-day-label { font-size: 13px; font-weight: 600; color: var(--text-2); margin: 4px 0 0 2px; }
-.queue { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); overflow: hidden; }
-.queue-item { position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 16px;
-  padding: 18px 20px 18px 24px; border-bottom: 1px solid var(--grid); }
-.queue-item:last-child { border-bottom: none; }
-.rail { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--ink-5); }
-.sev-critical .rail { background: var(--sev-1); }
-.sev-high .rail { background: var(--sev-2); }
-.sev-medium .rail { background: var(--sev-3); }
-.queue-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px;
-  background: var(--surface-2); color: var(--text-2); }
-.queue-kicker { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 12.5px; color: var(--text-2); }
-.sev-word { font-weight: 650; }
-/* Text needs more contrast than the rail: critical/high keep their red, medium is plain ink (the rail shows its colour). */
-.sev-word.critical { color: var(--sev-1); } .sev-word.high { color: var(--sev-2); } .sev-word.medium { color: var(--text); }
-.handled-tag { display: inline-flex; align-items: center; gap: 4px; color: var(--text-2); }
-.queue-title { margin: 4px 0 0; font-size: 16px; font-weight: 600; line-height: 1.4; letter-spacing: -0.005em; }
-.queue-title code { font-size: 14.5px; font-weight: 600; }
-.queue-title .country { font-weight: 500; color: var(--text-2); font-size: 14px; }
-.queue-detail { margin: 4px 0 0; color: var(--text-2); font-size: 13.5px; }
-.queue-detail strong { color: var(--text); font-weight: 600; }
-.queue-facts { display: flex; flex-wrap: wrap; gap: 6px 28px; margin: 12px 0 0; }
-.queue-facts div { display: flex; flex-direction: column; gap: 1px; }
-.queue-facts dt { font-size: 12px; color: var(--muted); }
-.queue-facts dd { margin: 0; font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; }
-.queue-side { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: 12px; }
-.queue-side time { font-size: 12.5px; color: var(--text-2); white-space: nowrap; }
-.queue-actions { display: flex; gap: 8px; }
-/* Handled alerts step back: no colour, quieter text. */
-.queue-item.handled .rail { background: var(--surface-3); }
-.queue-item.handled .queue-title, .queue-item.handled .sev-word { color: var(--text-2); }
+/* The alert table: one row per alert. A thin severity stripe on the row's left edge keeps the
+   "how serious" cue scannable down the page; the pill spells it out in words. */
+.alert-table-card { overflow: hidden; }
+.alert-table td { vertical-align: middle; }
+.alert-table th.pick, .alert-table td.pick { width: 36px; padding-right: 0; }
+.alert-table input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; margin: 0; }
+.alert-table tbody tr td:first-child { box-shadow: inset 3px 0 var(--ink-5); }
+.alert-table tr.sev-row-critical td:first-child { box-shadow: inset 3px 0 var(--sev-1); }
+.alert-table tr.sev-row-high td:first-child { box-shadow: inset 3px 0 var(--sev-2); }
+.alert-table tr.sev-row-medium td:first-child { box-shadow: inset 3px 0 var(--sev-3); }
+.alert-table tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.alert-cell { white-space: normal; min-width: 260px; }
+.alert-what { font-weight: 600; line-height: 1.4; }
+.alert-what code { font-size: 13px; font-weight: 600; }
+.alert-what .country, .alert-why { color: var(--text-2); font-weight: 500; }
+.alert-why { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; margin-top: 2px; }
+.alert-why strong { font-weight: 600; }
+/* Handled alerts step back: no colour stripe, quieter text. */
+.alert-table tr.handled td:first-child { box-shadow: inset 3px 0 var(--surface-3); }
+.alert-table tr.handled .alert-what { color: var(--text-2); }
+.bulk-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.drawer-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.alert-meaning { margin: 0; color: var(--text-2); }
+.alert-meaning strong { color: var(--text); }
 @media (max-width: 760px) {
-  .queue-item { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 16px 16px 16px 20px; }
-  .queue-icon { display: none; }
-  .queue-side { flex-direction: row; align-items: center; }
   .rule-filter .rules-link { margin-left: 0; }
 }
 
@@ -732,7 +739,6 @@ th .short { display: none; }
 @media (max-width: 600px) { th .long { display: none; } th .short { display: inline; } }
 
 .section-title .id { margin-left: auto; font-weight: 400; font-size: 12px; color: var(--muted); }
-.drawer-head .title-code { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
 .drawer-head .meta { gap: 6px 14px; }
 
 /* Search: search box first, three quick filters, the rest on demand, active filters as chips */
@@ -759,6 +765,7 @@ th .short { display: none; }
   .search-input { grid-column: 1 / -1; }
   .more-toggle { margin-left: 0; }
 }
+.not-in-log { color: var(--muted); }
 .event-cell .event-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .event-cell .mini-tag { display: inline-block; padding: 0 6px; border-radius: 5px; background: var(--surface-2);
   color: var(--text-2); font-size: 11.5px; line-height: 18px; }

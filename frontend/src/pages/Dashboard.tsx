@@ -6,7 +6,7 @@ import { Country } from "../components/Country";
 import { Delta, Donut, DonutSlice, EventsOverTime } from "../components/Charts";
 import { Icon, IconName } from "../components/Icon";
 import { Segmented } from "../components/Segmented";
-import { fmtNum, go, humanize, ipKind, RangeKey, RANGES, rangeParams, sourceLabel, useTokens } from "../util";
+import { fitToOptions, fmtNum, go, humanize, ipKind, RangeKey, rangeParams, RANGES, sourceLabel, useTokens } from "../util";
 
 /** Every tile has the same three rows: label + icon, the number, one line of context. */
 function Kpi({ icon, label, value, footer, onClick, attention }: {
@@ -256,7 +256,7 @@ export function Dashboard({ tenant, tenantName }: { tenant: string | undefined; 
         <div className="header-controls">
           <label className="inline-select">
             <span>Source</span>
-            <select value={source} onChange={(e) => setSource(e.target.value)} aria-label="Source filter">
+            <select ref={fitToOptions} value={source} onChange={(e) => setSource(e.target.value)} aria-label="Source filter">
               <option value="">All sources</option>
               {SOURCES.map((s) => <option key={s} value={s}>{sourceLabel(s)}</option>)}
             </select>

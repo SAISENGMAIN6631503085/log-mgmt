@@ -5,8 +5,8 @@ Open https://localhost and sign in as `admin`, `viewerA` or `viewerB` (passwords
 | Page | What it shows |
 |------|---------------|
 | **Overview** | A KPI strip (events, failed logins, high severity, open alerts; one surface split by hairlines, with changes written as "↑ 12% more" or "↑ 72× more vs. previous 24 h"), events over time (bars), **donuts** for sources and severity, and top IPs, countries, users and event types. Tiles, slices, bars and rows open a pre-filled search. |
-| **Search** | Search first: one big text box, the time range and a Search button. Source, severity and kind sit underneath and apply as soon as they're picked; IP, user, computer, country and event name are under **More filters**. Every active filter shows as a chip you can remove on its own. Clicking a row opens a side panel with the fields grouped, the flags, and the original log (`raw`). Results load 100 at a time. |
-| **Alerts** | A triage queue, newest first and grouped by day. A sentence on top sums up what's open ("22 open alerts: 3 critical, 15 high…, the oldest has waited 25 hours"); chips filter by rule. Each alert's headline says what happened in plain words, a coloured rail on the left shows how serious it is, and Started / Lasted / Seen in / Notified give the facts. **Investigate** opens the events behind it; admins can **Acknowledge**, and handled alerts turn grey. |
+| **Search** | Search first: one big text box, the time range and a Search button. Source, severity and kind sit underneath and apply as soon as they're picked; IP, user, computer, country and event name are under **More filters**. Every active filter shows as a chip you can remove on its own. Clicking a row opens a side panel: the event's name in words as the title, the fields grouped (the exact code from the log is the **Event code** row), the flags, and the original log (`raw`). A field the log doesn't have shows a faint "–" (hover: "This log has no IP address"), so an empty cell doesn't look broken. Results load 100 at a time. |
+| **Alerts** | A table, one alert per row and newest first, like the alert views of SIEM tools. A sentence on top sums up what's open ("22 open alerts: 3 critical, 15 high…, the oldest has waited 25 hours"); chips filter by rule. Columns: severity, the alert in plain words (with the rule and a few words on what it means under it, e.g. "Brute-force login: someone may be guessing passwords"), number of events, when it started, where it was seen, and status (only on the All tab, since elsewhere every row has the same one). A thin coloured stripe on the left shows how serious it is. Clicking a row opens a side panel with every detail, what it means, **Investigate** (the events behind it) and **Acknowledge**. Admins can tick rows and **acknowledge them together**; viewers see no tick boxes. Handled alerts turn grey. |
 | **Rules** | The detection rules with this tenant's settings. Admins switch a rule on/off and change its threshold; viewers see them read-only. |
 | **API keys** (admin) | Create a key per sending system (shown once, with a Copy button) and revoke it. Hidden from viewers. |
 | **Add logs** | Upload a log file (drag and drop; the log type is guessed from the file name and can be changed), with a plain-words result and a link to the new events. Plus copy-ready commands for the HTTP API and syslog. Upload is admin only; viewers see the commands. |
@@ -61,7 +61,9 @@ Below 900 px the sidebar becomes a row of tabs above the top bar.
   - KPI tiles are always 4 or 2 across, never 3 + 1;
   - cards in a row have equal height, with footers pinned to the bottom;
   - the search table keeps 5 columns (source and flags sit under the event name), so it fits a laptop screen;
-  - alerts are cards rather than a wide table.
+  - alerts are a table (about 10 per screen instead of 3 cards), since a real alert list is long and is read by comparing rows.
+- **Dropdowns** use their own chevron with room on the right, and in Chrome the open list is styled
+  to match the app (`appearance: base-select`); other browsers show their normal list.
 - **Icons** are a small inline SVG set (`components/Icon.tsx`); no icon library.
 - **Loading and empty states**: skeleton placeholders while loading, and a short explanation when there is nothing to show.
 - **"Graphite & Signal" theme** (a log tool is used like an instrument panel, so it should feel precise):
@@ -82,7 +84,10 @@ Below 900 px the sidebar becomes a row of tabs above the top bar.
   one is spotted). The same shape is the sidebar mark (`logo` in `components/Icon.tsx`) and the
   browser-tab icon (`public/favicon.svg`, with PNG copies for older browsers and an iPhone
   home-screen icon).
-- **Login page**: a split screen. On the left, a dark product panel shows what the product does
+- **Login page**: a split screen. On the left, a short headline ("Logs from every system, read as one")
+  types itself once with a soft blinking cursor; the line under it fades in after. The whole sentence is
+  laid out from the start (the untyped part invisible), so nothing moves, and the cursor is glued to the
+  last letter so it can't drop a line. Below it, a dark product panel shows what the product does
   (`components/IngestPreview.tsx`): logs arrive in their own formats (syslog line, Windows CSV row,
   Microsoft 365 / AWS / app JSON), each turns into the same row (time, source, action, who, IP with
   flag; internal addresses get a grey "internal" tag instead, since they belong to no country), and failed sign-ins from one address, sent by four different systems, fill a 5-step meter

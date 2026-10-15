@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { api, IngestResult, SOURCES, User } from "../api";
 import { CodeBlock } from "../components/CodeBlock";
 import { Icon } from "../components/Icon";
-import { fmtNum, go, sourceLabel } from "../util";
+import { fitToOptions, fmtNum, go, sourceLabel } from "../util";
 
 // One page that answers "how do I get logs in?": upload a file here, or copy a ready-made
 // command for an app (HTTP API) or a device (syslog). Same endpoints as the docs describe.
@@ -95,7 +95,7 @@ function Upload({ user, tenant, tenantName }: { user: User; tenant: string | und
               <div className="upload-row">
                 <label className="inline-select">
                   <span>Log type</span>
-                  <select value={source} onChange={(e) => setSource(e.target.value)} aria-label="Log type">
+                  <select ref={fitToOptions} value={source} onChange={(e) => setSource(e.target.value)} aria-label="Log type">
                     {SOURCES.map((s) => <option key={s} value={s}>{sourceLabel(s)}</option>)}
                   </select>
                 </label>

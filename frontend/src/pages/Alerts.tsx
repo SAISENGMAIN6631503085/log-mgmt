@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useState } from "react";
 import { Alert, api, User } from "../api";
 import { Empty } from "../components/Badge";
 import { Country } from "../components/Country";
@@ -6,8 +6,10 @@ import { Icon, IconName } from "../components/Icon";
 import { Segmented } from "../components/Segmented";
 import { fmtNum, go, severityLevel, sourceLabel } from "../util";
 
-// A triage queue: what happened (the headline), how serious (the coloured rail), when and where
-// (the facts), and what to do (Investigate / Acknowledge). Grouped by day, newest first.
+// An alert table, like the triage views of SIEM tools: one alert per row (severity, what happened,
+// how many events, when, where it was seen, status), newest first, so many alerts can be scanned
+// and compared at once. A row opens a side panel with every detail and the actions; admins can
+// tick rows and acknowledge them together.
 
 type StatusFilter = "open" | "acknowledged" | "all";
 const STATUS_OPTIONS = [
@@ -16,12 +18,14 @@ const STATUS_OPTIONS = [
   { key: "all", label: "All" },
 ] as const;
 
-const RULES: Record<string, { name: string; icon: IconName }> = {
-  brute_force_login: { name: "Brute-force login", icon: "lock" },
-  firewall_scan: { name: "Firewall scan", icon: "router" },
-  malware_detected: { name: "Malware detected", icon: "bug" },
+// `means` is the few-word "so what" shown in the table; the side panel has the full sentence.
+const RULES: Record<string, { name: string; icon: IconName; means: string }> = {
+  brute_force_login: { name: "Brute-force login", icon: "lock", means: "someone may be guessing passwords" },
+  firewall_scan: { name: "Firewall scan", icon: "router", means: "someone may be scanning for open ports" },
+  malware_detected: { name: "Malware detected", icon: "bug", means: "check the computer and the account" },
 };
-const ruleOf = (a: Alert) => RULES[a.rule_id] ?? { name: a.rule_name.split(":")[0], icon: "alert" as IconName };
+const ruleOf = (a: Alert) =>
+  RULES[a.rule_id] ?? { name: a.rule_name.split(":")[0], icon: "alert" as IconName, means: "" };
 
 /** "alice, bob and carol" / "alice, bob, carol and 4 more". */
 function listNames(names: string[]) {
@@ -59,8 +63,11 @@ function dayLabel(iso: string): string {
   const yesterday = new Date(Date.now() - 86400000);
   if (d.toDateString() === today.toDateString()) return "Today";
   if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
+
+const clock = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+const capital = (s: string) => s[0].toUpperCase() + s.slice(1);
 
 /** The headline says what happened, in plain words. */
 function Headline({ a }: { a: Alert }) {
@@ -132,20 +139,50 @@ export function Alerts({ user, tenant, tenantName, onChange }: {
   }, [alerts]);
   const shown = (alerts ?? []).filter((a) => rule === "all" || a.rule_id === rule);
 
-  // Group by the day the alert was raised; the list is already newest first.
-  const groups: { day: string; items: Alert[] }[] = [];
-  for (const a of shown) {
-    const day = dayLabel(a.created_at);
-    if (groups.at(-1)?.day !== day) groups.push({ day, items: [] });
-    groups.at(-1)!.items.push(a);
-  }
-
   const open = status === "open" ? alerts ?? [] : [];
   const bySeverity = (lvl: string) => open.filter((a) => severityLevel(a.severity) === lvl).length;
   const oldest = open.length ? open.reduce((o, a) => (a.created_at < o.created_at ? a : o)) : null;
   const severityParts = (["critical", "high", "medium"] as const)
     .map((lvl) => [lvl, bySeverity(lvl)] as const).filter(([, n]) => n > 0)
     .map(([lvl, n]) => `${n} ${lvl}`);
+
+  const [openId, setOpenId] = useState<number | null>(null);
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setPicked(new Set()), [status, rule, tenant]);
+
+  const isAdmin = user.role === "admin";
+  const pickable = shown.filter((a) => a.status === "open");
+  const allPicked = pickable.length > 0 && pickable.every((a) => picked.has(a.id));
+  const toggle = (id: number) => setPicked((p) => {
+    const next = new Set(p);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  async function ackPicked() {
+    setBusy(true);
+    try {
+      // One request per alert, a few at a time; the API checks each one belongs to this tenant.
+      const ids = [...picked];
+      for (let i = 0; i < ids.length; i += 6) {
+        await Promise.all(ids.slice(i, i + 6).map((id) => api(`/api/alerts/${id}/ack`, { method: "POST", params: { tenant } })));
+      }
+      setPicked(new Set());
+      const open = await api<{ alerts: Alert[] }>("/api/alerts", { params: { tenant, status: "open" } });
+      onChange?.(open.alerts.length);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const openAlert = shown.find((a) => a.id === openId) ?? (alerts ?? []).find((a) => a.id === openId) ?? null;
+  const rowKey = (a: Alert) => (e: ReactKeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpenId(a.id); }
+  };
 
   return (
     <>
@@ -192,51 +229,149 @@ export function Alerts({ user, tenant, tenantName, onChange }: {
           </section>
         )}
 
-        {groups.map((g) => (
-          <section key={g.day} className="alert-day" aria-label={g.day}>
-            <h2 className="alert-day-label">{g.day}</h2>
-            <ol className="queue">
-              {g.items.map((a) => {
-                const r = ruleOf(a);
-                const level = severityLevel(a.severity);
-                const handled = a.status === "acknowledged";
-                return (
-                  <li key={a.id} className={`queue-item sev-${level} ${handled ? "handled" : ""}`}>
-                    <span className="rail" aria-hidden="true" />
-                    <span className="queue-icon" aria-hidden="true"><Icon name={r.icon} size={18} /></span>
-                    <div className="queue-body">
-                      <div className="queue-kicker">
-                        <span className={`sev-word ${level}`}>{level[0].toUpperCase() + level.slice(1)}</span>
-                        <span>{r.name}</span>
-                        {handled && <span className="handled-tag"><Icon name="check" size={13} />Acknowledged</span>}
-                      </div>
-                      <h3 className="queue-title"><Headline a={a} /></h3>
-                      <p className="queue-detail"><Detail a={a} /></p>
-                      <dl className="queue-facts">
-                        <div><dt>Started</dt><dd title={new Date(a.window_start).toLocaleString()}>
-                          {new Date(a.window_start).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</dd></div>
-                        <div><dt>Lasted</dt><dd>{duration(a)}</dd></div>
-                        {a.details.sources?.length ? <div><dt>Seen in</dt><dd>{a.details.sources.map(sourceLabel).join(", ")}</dd></div> : null}
-                        <div><dt>Notified</dt><dd>{a.webhook_sent_at ? "Webhook sent" : "In app only"}</dd></div>
-                      </dl>
-                    </div>
-                    <div className="queue-side">
-                      <time dateTime={a.created_at} title={new Date(a.created_at).toLocaleString()}>{ago(a.created_at)}</time>
-                      <div className="queue-actions">
-                        <button className="sm" onClick={() => investigate(a)}><Icon name="search" size={14} />Investigate</button>
-                        {/* Viewers are read-only; the API enforces this too (403). */}
-                        {user.role === "admin" && !handled && (
-                          <button className="sm ghost" onClick={() => ack(a.id)}><Icon name="check" size={14} />Acknowledge</button>
+        {shown.length > 0 && (
+          <section className="card alert-table-card">
+            <div className="results-head">
+              {isAdmin && picked.size > 0 ? (
+                <div className="bulk-bar" role="status">
+                  <strong>{picked.size} selected</strong>
+                  <button className="sm primary" onClick={ackPicked} disabled={busy}>
+                    <Icon name="check" size={14} />{busy ? "Acknowledging…" : "Acknowledge selected"}
+                  </button>
+                  <button className="link" onClick={() => setPicked(new Set())}>Clear</button>
+                </div>
+              ) : (
+                <span className="dim">{fmtNum(shown.length)} {shown.length === 1 ? "alert" : "alerts"}, newest first. Click one for details.</span>
+              )}
+            </div>
+            <div className="table-wrap">
+              <table className="alert-table">
+                <thead>
+                  <tr>
+                    {isAdmin && (
+                      <th className="pick">
+                        <input type="checkbox" aria-label="Select all open alerts shown" checked={allPicked}
+                               disabled={!pickable.length}
+                               onChange={() => setPicked(allPicked ? new Set() : new Set(pickable.map((a) => a.id)))} />
+                      </th>
+                    )}
+                    <th>Severity</th>
+                    <th>Alert</th>
+                    <th className="num">Events</th>
+                    <th>Started</th>
+                    <th>Seen in</th>
+                    {/* On the Open / Acknowledged tabs every row has the same status, so it's shown only under All. */}
+                    {status === "all" && <th>Status</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {shown.map((a) => {
+                    const r = ruleOf(a);
+                    const level = severityLevel(a.severity);
+                    const handled = a.status === "acknowledged";
+                    return (
+                      <tr key={a.id} className={`clickable sev-row-${level}${handled ? " handled" : ""}${openId === a.id ? " selected" : ""}`}
+                          tabIndex={0} onClick={() => setOpenId(a.id)} onKeyDown={rowKey(a)}>
+                        {isAdmin && (
+                          <td className="pick" onClick={(e) => e.stopPropagation()}>
+                            {!handled && <input type="checkbox" aria-label={`Select alert ${a.id}`}
+                                                checked={picked.has(a.id)} onChange={() => toggle(a.id)} />}
+                          </td>
                         )}
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
+                        <td><span className={`pill sev-${level}`}><span className="dot" />{capital(level)}</span></td>
+                        <td className="alert-cell">
+                          <div className="alert-what"><Headline a={a} /></div>
+                          <div className="alert-why">
+                            <Icon name={r.icon} size={13} /><span><strong>{r.name}</strong>{r.means && `: ${r.means}`}</span>
+                          </div>
+                        </td>
+                        <td className="num">{fmtNum(a.event_count)}</td>
+                        <td className="time-cell"
+                            title={`Started ${new Date(a.window_start).toLocaleString()}\nAlert raised ${ago(a.created_at)}`}>
+                          {clock(a.window_start)}<span>{dayLabel(a.window_start)}</span>
+                        </td>
+                        <td className="dim">{(a.details.sources ?? []).map(sourceLabel).join(", ") || "–"}</td>
+                        {status === "all" && (
+                          <td><span className={`pill status-${a.status}`}><span className="dot" />{handled ? "Acknowledged" : "Open"}</span></td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </section>
-        ))}
+        )}
+
+        {openAlert && (
+          <AlertDrawer a={openAlert} canAck={isAdmin && openAlert.status === "open"} onClose={() => setOpenId(null)}
+                       onInvestigate={() => investigate(openAlert)} onAck={() => ack(openAlert.id)} />
+        )}
       </div>
+    </>
+  );
+}
+
+/** Every detail of one alert, with its actions. */
+function AlertDrawer({ a, canAck, onClose, onInvestigate, onAck }: {
+  a: Alert; canAck: boolean; onClose: () => void; onInvestigate: () => void; onAck: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const r = ruleOf(a);
+  const level = severityLevel(a.severity);
+  const target = a.group_key ?? a.src_ip ?? "";
+  const facts: [string, React.ReactNode][] = [
+    [a.rule_id === "malware_detected" ? "Computer" : "IP address",
+      <><code>{target}</code>{a.details.country ? <> <Country code={a.details.country} /></> : null}</>],
+    ["Events", <>{fmtNum(a.event_count)} {a.event_count === 1 ? "event" : "events"}
+      {a.details.threshold ? <span className="dim"> (the rule fires at {fmtNum(a.details.threshold)})</span> : null}</>],
+    ["Started", new Date(a.window_start).toLocaleString()],
+    ["Last event", new Date(a.window_end).toLocaleString()],
+    ["Lasted", duration(a)],
+    ["Seen in", (a.details.sources ?? []).map(sourceLabel).join(", ") || "–"],
+    ...(a.details.users?.length ? [["Accounts", a.details.users.join(", ")] as [string, React.ReactNode]] : []),
+    // The computer list repeats the target for malware alerts, so it's shown only when it adds something.
+    ...(a.details.hosts?.length && a.details.hosts.join() !== target
+      ? [["Computers", a.details.hosts.join(", ")] as [string, React.ReactNode]] : []),
+    ["Raised", `${new Date(a.created_at).toLocaleString()} (${ago(a.created_at)})`],
+    ["Notified", a.webhook_sent_at ? "Webhook sent" : "In the app only"],
+  ];
+  return (
+    <>
+      <div className="scrim" onClick={onClose} />
+      <aside className="drawer" role="dialog" aria-label={`Alert ${a.id}`}>
+        <div className="drawer-head">
+          <div>
+            <div className="title"><Headline a={a} /></div>
+            <div className="meta">
+              <span className={`pill sev-${level}`}><span className="dot" />{capital(level)}</span>
+              <span className="alert-why"><Icon name={r.icon} size={13} />{r.name}</span>
+              <span className={`pill status-${a.status}`}><span className="dot" />{a.status === "acknowledged" ? "Acknowledged" : "Open"}</span>
+            </div>
+          </div>
+          <button className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="x" /></button>
+        </div>
+        <div className="drawer-body">
+          <div className="section-title">What it means</div>
+          <p className="alert-meaning"><Detail a={a} /></p>
+          <div className="drawer-actions">
+            <button className="sm primary" onClick={onInvestigate}><Icon name="search" size={14} />Investigate the events</button>
+            {/* Viewers are read-only; the API enforces this too (403). */}
+            {canAck && <button className="sm" onClick={onAck}><Icon name="check" size={14} />Acknowledge</button>}
+          </div>
+          <div className="section-title">Details</div>
+          <dl className="kv">
+            {facts.map(([k, v]) => (
+              <div key={k} style={{ display: "contents" }}><dt>{k}</dt><dd>{v}</dd></div>
+            ))}
+          </dl>
+        </div>
+      </aside>
     </>
   );
 }
