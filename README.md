@@ -105,9 +105,15 @@ All images run on linux/amd64 and linux/arm64.
   ranges in the assignment samples (203.0.113.x, 198.51.100.x) correctly show no flag.
 - **Three detection rules** (brute force, firewall scan, malware), tunable per tenant on the **Rules** page.
 - **Add logs** page (file upload in the browser) and an **API keys** page (create, show once, revoke).
-- **Live demo traffic:** with `COMPOSE_PROFILES=demo`, a simulator keeps the demo fresh. Its
-  addresses are real public ranges, so countries show up, but every log is generated, and the
-  website shows a **Demo data** label.
+- **Live demo traffic:** with `COMPOSE_PROFILES=demo`, a simulator (`samples/simulator.py`, its own
+  container) keeps the demo fresh. Its addresses are real public ranges, so countries show up, but
+  every log is generated, and the website shows a **Demo data** label. It does two things:
+  - a **steady stream** of ordinary logs, a few every second, about 30,000 a day for demoA (which
+    also receives all the syslog) and 15,000 for demoB; none of it reaches an alert threshold;
+  - a **staged attack every 15 minutes** (brute force, port scan, malware in turn), so about four
+    alerts an hour. The logs are fake, but the alerts are real detections by the normal rules.
+
+  With 7-day retention that's at most about 340,000 logs, roughly 40–50 MB in ClickHouse.
 - **CI/CD** with GitHub Actions, and a hardened SaaS server.
 
 ## Tests
