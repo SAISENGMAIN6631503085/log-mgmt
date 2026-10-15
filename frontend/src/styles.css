@@ -538,6 +538,17 @@ h2 svg { vertical-align: -2px; margin-right: 4px; color: var(--muted); }
 
 /* API keys page */
 .key-form { display: flex; gap: 10px; flex-wrap: wrap; }
+/* Tenants page */
+.form-hint { margin-top: 6px; }
+.tenants-table td { vertical-align: middle; }
+.tenants-table .chip { font-family: inherit; }
+.inline-tag { margin-left: 8px; }
+.row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.tenants-table tr.form-row td { background: var(--surface-2); white-space: normal; }
+.add-viewer { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+.add-viewer-fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.add-viewer-fields .field { flex: 1 1 200px; }
+.add-viewer-buttons { display: flex; gap: 6px; }
 .key-form input { flex: 1; min-width: min(100%, 240px); }
 .new-key { margin-top: 14px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-sm);
   display: flex; flex-direction: column; gap: 12px; }

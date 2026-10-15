@@ -9,6 +9,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Events } from "./pages/Events";
 import { Login } from "./pages/Login";
 import { Rules } from "./pages/Rules";
+import { Tenants } from "./pages/Tenants";
 import { applyTheme, loadTheme, Theme, useRoute } from "./util";
 
 const PAGES: { key: string; label: string; icon: IconName; adminOnly?: boolean }[] = [
@@ -18,6 +19,7 @@ const PAGES: { key: string; label: string; icon: IconName; adminOnly?: boolean }
   { key: "rules", label: "Rules", icon: "sliders" },
   { key: "add", label: "Add logs", icon: "upload" },
   { key: "keys", label: "API keys", icon: "key", adminOnly: true },
+  { key: "tenants", label: "Tenants", icon: "building", adminOnly: true },
 ];
 
 export default function App() {
@@ -59,12 +61,7 @@ export default function App() {
     return () => window.removeEventListener("lm:logout", onLogout);
   }, []);
 
-  useEffect(() => {
-    if (!user) return;
-    if (user.role !== "admin") {
-      setTenant(undefined); // a viewer's tenant always comes from their token
-      return;
-    }
+  const loadTenants = () =>
     api<string[]>("/api/tenants")
       .then((list) => {
         setTenants(list);
@@ -72,6 +69,14 @@ export default function App() {
         if (tenant && !list.includes(tenant)) setTenant(undefined);
       })
       .catch(() => setTenants([]));
+
+  useEffect(() => {
+    if (!user) return;
+    if (user.role !== "admin") {
+      setTenant(undefined); // a viewer's tenant always comes from their token
+      return;
+    }
+    loadTenants();
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Whether to label the data as simulator-generated (and credit the country data source).
@@ -169,6 +174,10 @@ export default function App() {
         {page === "rules" && <Rules key={key} user={user} tenant={tenant} tenantName={activeTenant} />}
         {page === "keys" && <ApiKeys key={key} tenant={tenant} tenantName={activeTenant} />}
         {page === "add" && <AddLogs key={key} user={user} tenant={tenant} tenantName={activeTenant} />}
+        {page === "tenants" && (
+          <Tenants current={activeTenant} onChanged={loadTenants}
+                   onView={(t) => setTenant(t === user.tenant ? undefined : t)} />
+        )}
         {page === "alerts" && <Alerts key={key} user={user} tenant={tenant} tenantName={activeTenant} onChange={setOpenAlerts} />}
       </div>
     </div>

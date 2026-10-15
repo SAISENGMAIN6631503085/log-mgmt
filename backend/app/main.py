@@ -9,7 +9,7 @@ from .alerting import worker_loop
 from .auth import check_jwt_secret
 from .clickhouse import ch
 from .retention import retention_loop
-from .routers import alerts, auth, events, keys, rules, stats
+from .routers import alerts, auth, events, keys, rules, stats, tenants
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 # httpx logs every request (each ClickHouse query and webhook) at INFO: too noisy.
@@ -37,6 +37,7 @@ app.include_router(alerts.router)
 app.include_router(stats.router)
 app.include_router(keys.router)
 app.include_router(rules.router)
+app.include_router(tenants.router)
 # Logs arrive at the Go ingest service (/ingest, /api/ingest/*), not here; Caddy routes them.
 
 

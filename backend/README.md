@@ -104,6 +104,20 @@ Demo keys come from `SEED_API_KEYS` and are created by `make seed`.
 `Authorization: Bearer <token>`. The token's claims are `sub`, `role` (admin|viewer) and `tenant`.
 `GET /api/auth/me` shows the current claims.
 
+**Tenants** (`routers/tenants.py`, admin only, 403 for viewers): onboarding a customer from the website.
+- `GET /api/admin/tenants`: every tenant with its viewers and number of active API keys.
+- `POST /api/admin/tenants {"name": "acme"}`: a tenant has no table of its own (it exists once it has a
+  user or an API key), so this creates its **first API key** and returns it once. Names are letters,
+  digits, `-` and `_`, starting with a letter; a name that differs only in letter case from an existing
+  one is refused (409), so `demoa` can't sit next to `demoA`.
+- `POST /api/admin/tenants/{tenant}/viewers {"username", "password"}`: a viewer for that tenant only
+  (password at least 12 characters, hashed like the others; usernames unique ignoring case; 404 for an
+  unknown tenant). The viewer's JWT carries the tenant, so `resolve_tenant` keeps them inside it.
+- `make seed` still sets up the starting demo (admin, viewerA, viewerB, demoA, demoB, known keys);
+  this page is for adding more afterwards. Not built: removing a viewer or resetting a password. A
+  removed viewer's token would also stay valid until it expires (8 hours), so removal would need a
+  per-request user check or a token block list.
+
 **Admin default tenant** (migration 008): `PUT /api/auth/default-tenant {"tenant": "demoB"}` sets the
 tenant an admin sees after signing in (the website's "Make demoB my default"). It's admin only (403
 for viewers), only accepts tenants that exist (404 otherwise), and returns a fresh token carrying
