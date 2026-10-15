@@ -206,6 +206,11 @@ API (Bearer token, tenant-scoped like search):
 every day older than `RETENTION_DAYS` (default 7) from ClickHouse's `events` and
 `events_minutely`; the day exactly `RETENTION_DAYS` ago is kept, matching what ingest accepts.
 
+7 days is the assignment's minimum. A real deployment sets it from its legal duties: in Thailand,
+the Computer Crime Act (B.E. 2550, s. 26) requires service providers to keep traffic data for at
+least 90 days, while the PDPA says not to keep personal data longer than needed. Either way it's
+one setting, `RETENTION_DAYS`.
+
 - A day is one ClickHouse partition (`PARTITION BY toDate(ts)`), so dropping it
   (`ALTER TABLE … DROP PARTITION`) is instant and frees disk at once. A `DELETE` would rewrite
   data files instead. This is the reason the table is partitioned by day.
