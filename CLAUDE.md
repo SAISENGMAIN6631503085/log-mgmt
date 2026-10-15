@@ -32,11 +32,13 @@ docker-compose.yml, .env.example, Makefile, Caddyfile, postman_collection.json
 ```
 
 ## Common schema (every event is normalized to this before storage)
-`@timestamp` (RFC3339, stored as `ts timestamptz`), `tenant`, `source`
+`@timestamp` (RFC3339, stored as ClickHouse `ts DateTime64(3, 'UTC')`), `tenant`, `source`
 (firewall|network|api|crowdstrike|aws|m365|ad), `vendor`, `product`, `event_type`, `event_subtype`,
 `severity` (0-10), `action` (allow|deny|create|delete|login|logout|alert|quarantine), `src_ip`, `src_port`,
 `dst_ip`, `dst_port`, `protocol`, `user`, `host`, `process`, `url`, `http_method`, `status_code`,
-`rule_name`, `rule_id`, `cloud_account_id`, `cloud_region`, `cloud_service`, `raw` (original), `_tags` (text[])
+`rule_name`, `rule_id`, `cloud_account_id`, `cloud_region`, `cloud_service`, `raw` (original), `_tags` (stored as `tags`),
+plus `src_country` (GeoIP enrichment at ingest). `user` is stored as `username` (reserved word).
+Duplicates: same fingerprint (sha256 of tenant + source + raw) at the same `ts`; for `time_adjusted` events the fingerprint alone.
 
 ## Normalization rules
 - One mapper function per source in `ingest/normalize/<source>.go`, each pure and unit-tested
@@ -58,15 +60,22 @@ docker-compose.yml, .env.example, Makefile, Caddyfile, postman_collection.json
 - Admin may pass `?tenant=` to switch tenants; viewer requests for another tenant → 403
 - Passwords hashed with bcrypt/argon2; secrets only from env vars; never commit `.env`
 - Seed users: admin, viewerA (tenant demoA), viewerB (tenant demoB)
+- Ingest API keys stored as SHA-256 hashes, shown once, revocable; sign-in throttling (5 failures per
+  username / 20 per IP in 5 min → 429)
+- Syslog port 514 is closed on the live (SaaS) server on purpose (`SYSLOG_BIND=127.0.0.1`)
 
 ## Alerting
-- Background worker runs every 60s
-- Rule 1: >= 5 failed logins from the same `src_ip` (per tenant) within 5 minutes
-- Store in `alerts` table, show on Alerts page, POST JSON to `ALERT_WEBHOOK_URL` if set
-- De-duplicate: don't re-alert the same (tenant, rule, src_ip) within the window
+- Background worker (backend) runs every 60s, reading events from ClickHouse by event time
+- 3 rules of one shape (`RULES` in `backend/app/alerting.py`): brute-force login (>= 5 `auth_failure`
+  from one `src_ip` in 5 min), firewall scan (>= 20 blocked from one `src_ip`), malware (CrowdStrike
+  severity >= 7 per `host`); admins can turn each off or change its threshold per tenant (`rule_settings`)
+- Store in `alerts` table, show on Alerts page, POST JSON to `ALERT_WEBHOOK_URL` if set (plain JSON)
+- De-duplicate: don't re-alert the same (tenant, rule, src_ip or host) within the window
 
 ## Retention
-- Daily partitions created ahead of time; job drops partitions older than `RETENTION_DAYS` (default 7)
+- ClickHouse partitions by day (created on first insert); the hourly job drops days older than
+  `RETENTION_DAYS` (default 7, the assignment's minimum; Thai law needs >= 90 for real service providers);
+  the table TTL is a safety net
 
 ## Conventions
 - Config via env vars only; every var documented in `.env.example`
@@ -74,3 +83,7 @@ docker-compose.yml, .env.example, Makefile, Caddyfile, postman_collection.json
 - Small commits with clear messages; run `make test` before committing
 - When finishing a feature, update the relevant README/docs in the same change
 - Do not delete or rewrite tests to make them pass
+- Pushing to `main` runs CI and **auto-deploys the live SaaS site** (https://14.207.143.101.sslip.io);
+  the user commits and pushes themselves
+- Tests run inside containers: rebuild the changed image (`docker compose up -d --build <service>`)
+  before `make test`

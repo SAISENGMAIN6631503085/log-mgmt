@@ -24,7 +24,9 @@ make seed    # users admin / viewerA / viewerB + demo API keys
 make demo    # load all sample logs (syslog, JSON API, file upload)
 ```
 Open **https://localhost** and sign in as `admin` (password: `SEED_ADMIN_PASSWORD` in `.env`).
-The browser warns about the certificate in appliance mode; see
+The browser shows "Not secure" in appliance mode: each install makes its own certificate, which
+your computer doesn't know yet. Traffic is still encrypted. Click through, or trust that install's
+certificate on your computer once (one command; this is what the demo video's Mac did), see
 [setup_appliance.md](docs/setup_appliance.md#5-the-browser-certificate-warning).
 
 Change the secrets in `.env` before running this anywhere real.

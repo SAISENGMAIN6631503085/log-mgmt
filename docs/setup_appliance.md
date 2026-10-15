@@ -68,19 +68,45 @@ Open these ports in the VM firewall: **443/tcp** (and 80/tcp for the redirect) f
 ## 5. The browser certificate warning
 
 With `CADDY_TLS=internal`, Caddy issues its own certificate, because Let's Encrypt can't issue
-one for `localhost` or private IPs. Traffic is encrypted, but browsers don't know the issuer and
-show a warning. Either click through it, or trust Caddy's root once on each computer:
+one for `localhost` or private IPs. Traffic is encrypted, but browsers don't know the issuer, so
+they show **"Not secure"** with `https` crossed out. That's expected; the assignment accepts a
+self-signed certificate in appliance mode (HTTPS is only required in SaaS mode).
+
+**Trusting it is optional.** It doesn't make the connection any more secure (it's already
+encrypted); it only removes the warning, so people aren't trained to click through browser
+warnings and the address bar shows the normal padlock. Worth doing on computers that use the
+appliance every day; skip it for a quick test.
+
+**Every install creates its own certificate authority** (kept in the `caddy_data` volume, so it
+survives restarts). Trusting one install's authority on one computer does nothing for another
+install or another computer, so on a fresh install you'll see the warning until you either click
+through it or trust *that install's* authority on *that computer*:
 
 ```bash
 docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt
-# macOS
+# macOS (asks for your Mac password; then restart the browser)
 sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain caddy-root.crt
 # Ubuntu
 sudo cp caddy-root.crt /usr/local/share/ca-certificates/caddy-local.crt && sudo update-ca-certificates
+# Windows (PowerShell as administrator)
+Import-Certificate -FilePath caddy-root.crt -CertStoreLocation Cert:\LocalMachine\Root
 ```
 
-Firefox has its own certificate store: add the file under *Settings → Certificates*. Don't commit
-`caddy-root.crt`. The CA is kept in the `caddy_data` volume, so it survives restarts.
+Firefox has its own certificate store: add the file under *Settings → Certificates*. Postman also
+has its own: keep *SSL certificate verification* off there (Settings → General) for `localhost`.
+
+- **Is it safe?** The authority's private key never leaves the machine running the appliance, so
+  the risk is small. But a trusted authority can vouch for *any* site, so only trust one you
+  created yourself, and remove it when you no longer need it.
+- **To remove it:** macOS: *Keychain Access → System → Certificates*, search "Caddy", delete
+  "Caddy Local Authority". Ubuntu: delete `/usr/local/share/ca-certificates/caddy-local.crt` and
+  run `sudo update-ca-certificates --fresh`. Windows: *certlm.msc → Trusted Root Certification
+  Authorities*, delete "Caddy Local Authority".
+- Don't commit `caddy-root.crt`.
+
+The demo video was recorded on a Mac that trusts its own install's authority, which is why its
+`https://localhost` shows no warning. Your own install will show the warning until you do the
+step above.
 
 ## 6. Day-to-day
 
