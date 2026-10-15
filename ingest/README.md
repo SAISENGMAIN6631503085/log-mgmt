@@ -103,6 +103,10 @@ Syslog (`syslog.go`):
   the same time**. ClickHouse has no unique constraint, so existing pairs are looked up first (in
   chunks of 300, since the values travel in the URL); `ReplacingMergeTree` on the same key removes
   anything that slips through when it merges.
+- Events stored at their receipt time because their own time was out of range (`time_adjusted`)
+  get a new stored time on every send, so for them the fingerprint **alone** decides. Their real
+  time is inside the original log, which the fingerprint covers, so re-uploading an old file still
+  counts as duplicates.
 - The fingerprint text is byte-for-byte what the earlier Python version hashed (non-ASCII as
   `\uXXXX`), so events stored before the move still count as duplicates.
 - **Ids** are time-ordered and below 2^53, so browsers (JSON numbers are doubles) show them exactly.

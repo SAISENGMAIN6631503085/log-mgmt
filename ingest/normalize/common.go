@@ -18,6 +18,10 @@ import (
 // AuthFailure is the tag the brute-force alert rule looks for.
 const AuthFailure = "auth_failure"
 
+// TimeAdjusted tags an event stored at its receipt time because its own time was out of range
+// (older than retention, or more than a day ahead). Its real time stays in Raw.
+const TimeAdjusted = "time_adjusted"
+
 // Sources and actions allowed by the common schema.
 var (
 	Sources = []string{"ad", "api", "aws", "crowdstrike", "firewall", "m365", "network"}

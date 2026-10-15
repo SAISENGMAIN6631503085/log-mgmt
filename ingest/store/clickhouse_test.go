@@ -164,6 +164,28 @@ func TestSameContentAtAnotherTimeIsANewEvent(t *testing.T) {
 	}
 }
 
+func TestTimeAdjustedEventSentAgainLaterIsADuplicate(t *testing.T) {
+	// An old log is stored at its receipt time (tag time_adjusted), so each send has a different
+	// stored time; re-uploading the same old file must still count as duplicates.
+	c, tenant := clickhouse(t)
+	first := event(tenant, map[string]any{"eventTime": "2025-08-20T09:10:00Z", "eventName": "CreateUser"})
+	first.Tags = []string{normalize.TimeAdjusted}
+	again := *first
+	again.TS = first.TS.Add(3 * time.Minute) // the second upload, a few minutes later
+	if n, _ := c.Insert(context.Background(), []*normalize.Event{first}); n != 1 {
+		t.Fatalf("first: %d", n)
+	}
+	if n, _ := c.Insert(context.Background(), []*normalize.Event{&again}); n != 0 {
+		t.Fatalf("the same old log sent again was stored again (%d)", n)
+	}
+	// A different old log is still new.
+	other := *first
+	other.Raw = map[string]any{"eventTime": "2025-08-20T09:11:00Z", "eventName": "CreateUser"}
+	if n, _ := c.Insert(context.Background(), []*normalize.Event{&other}); n != 1 {
+		t.Fatalf("a different old log: %d", n)
+	}
+}
+
 func TestStoredRowReadsBackWithAllFields(t *testing.T) {
 	c, tenant := clickhouse(t)
 	ip, country, port := "1.46.10.5", "TH", 443

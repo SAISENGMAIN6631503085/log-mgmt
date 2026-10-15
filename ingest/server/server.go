@@ -21,7 +21,6 @@ import (
 const (
 	MaxUploadBytes     = 50 << 20 // 50 MB (Caddy allows 55 MB for the multipart overhead)
 	maxErrorsReturned  = 100      // keep responses small when a whole file is bad
-	timeAdjustedTag    = "time_adjusted"
 	defaultMaxPerBatch = 10_000
 )
 
@@ -131,7 +130,7 @@ func (s *Server) process(ctx context.Context, items []item) (*Result, *httpError
 		}
 		if CheckTSWindow(e.TS, s.Config.RetentionDays, now) != "" {
 			e.TS = now
-			e.Tags = append(e.Tags, timeAdjustedTag)
+			e.Tags = append(e.Tags, normalize.TimeAdjusted)
 			res.TimeAdjusted++
 		}
 		events = append(events, e)
