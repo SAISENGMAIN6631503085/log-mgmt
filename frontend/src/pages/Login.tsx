@@ -58,7 +58,7 @@ export function Login({ onLogin }: { onLogin: (user: User) => void }) {
     <div className="login-page">
       <aside className="login-hero">
         <div className="login-hero-brand">
-          <span className="brand-mark"><Icon name="logo" /></span>
+          <span className="brand-mark"><Icon name="logo" size={21} /></span>
           <span>Log Management</span>
         </div>
 
@@ -74,7 +74,7 @@ export function Login({ onLogin }: { onLogin: (user: User) => void }) {
       <main className="login-main">
         <form className="login-form" onSubmit={submit} noValidate>
           <div className="login-mobile-brand">
-            <span className="brand-mark"><Icon name="logo" /></span>
+            <span className="brand-mark"><Icon name="logo" size={21} /></span>
             <span>Log Management</span>
           </div>
           <div>

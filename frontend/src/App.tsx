@@ -111,7 +111,7 @@ export default function App() {
     <div className="app">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark"><Icon name="logo" /></span>
+          <span className="brand-mark"><Icon name="logo" size={21} /></span>
           <div>
             <div className="brand-name">Log Management</div>
             <div className="brand-sub">Security events</div>

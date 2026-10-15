@@ -1,6 +1,7 @@
 // Small inline SVG icon set (24x24 grid, 2px strokes): no icon library needed.
 const PATHS: Record<string, string> = {
-  logo: "M12 3 4.5 6v5.5c0 4.6 3.1 8.4 7.5 9.5 4.4-1.1 7.5-4.9 7.5-9.5V6L12 3Z M8.5 12.5l2.3 2.3 4.7-4.8",
+  // Three log lines, the middle one turning into a pulse: logs coming in, and the moment one is spotted.
+  logo: "M5 5h9 M5 12h3.5l2-4 3 8 2-4H19 M5 19h11",
   dashboard: "M4 4h7v7H4z M13 4h7v4h-7z M13 10h7v10h-7z M4 13h7v7H4z",
   search: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14Z M20 20l-4-4",
   bell: "M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16Z M10 21h4",

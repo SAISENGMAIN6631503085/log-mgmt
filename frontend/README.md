@@ -78,6 +78,10 @@ Below 900 px the sidebar becomes a row of tabs above the top bar.
   - All colours are CSS tokens in `src/styles.css`. Charts read the computed tokens (SVG attributes
     can't use `var()`) and update when the theme changes.
 - **Times** are stored in UTC and shown in the viewer's local time zone.
+- **Logo**: three log lines, the middle one turning into a pulse (logs coming in, and the moment
+  one is spotted). The same shape is the sidebar mark (`logo` in `components/Icon.tsx`) and the
+  browser-tab icon (`public/favicon.svg`, with PNG copies for older browsers and an iPhone
+  home-screen icon).
 - **Login page**: a split screen. On the left, a dark product panel shows what the product does
   (`components/IngestPreview.tsx`): logs arrive in their own formats (syslog line, Windows CSV row,
   Microsoft 365 / AWS / app JSON), each turns into the same row (time, source, action, who, IP with
