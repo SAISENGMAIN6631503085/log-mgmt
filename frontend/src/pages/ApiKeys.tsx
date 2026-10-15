@@ -77,11 +77,18 @@ export function ApiKeys({ tenant, tenantName }: { tenant: string | undefined; te
             </div>
           </div>
           <div className="card-body">
+            {/* The key is tied to the tenant being viewed, so that tenant is spelled out right here,
+                not only in the top bar: a key made for the wrong customer would send logs to them. */}
+            <div className="key-target">
+              <Icon name="building" size={15} />
+              <span>Logs sent with this key go to <strong>{tenantName}</strong></span>
+              <span className="muted">(switch tenant at the top right to make a key for another one)</span>
+            </div>
             <form className="key-form" onSubmit={create}>
               <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60}
                      placeholder='e.g. "shop website" or "firewall-01"' aria-label="Key name" />
               <button className="primary" type="submit" disabled={busy || !name.trim()}>
-                <Icon name="key" size={16} />{busy ? "Creating…" : "Create key"}
+                <Icon name="key" size={16} />{busy ? "Creating…" : `Create key for ${tenantName}`}
               </button>
             </form>
 
@@ -91,7 +98,7 @@ export function ApiKeys({ tenant, tenantName }: { tenant: string | undefined; te
                   <span className="ok-mark"><Icon name="check" size={16} /></span>
                   <div>
                     <strong>Key "{created.name}" created for {tenantName}</strong>
-                    <div className="muted small">Copy it now. For safety it's stored scrambled, so it can't be shown again.</div>
+                    <div className="muted small">Logs sent with it go to <strong>{tenantName}</strong>. Copy it now: for safety it's stored scrambled, so it can't be shown again.</div>
                   </div>
                   <button className="sm ghost" onClick={() => setCreated(null)} aria-label="Hide key"><Icon name="x" size={14} /></button>
                 </div>

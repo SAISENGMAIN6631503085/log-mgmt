@@ -537,6 +537,10 @@ h2 svg { vertical-align: -2px; margin-right: 4px; color: var(--muted); }
 }
 
 /* API keys page */
+.key-target { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; padding: 8px 12px;
+  border-radius: var(--radius-sm); background: var(--accent-wash); color: var(--text); font-size: 13.5px; }
+.key-target svg { color: var(--accent-text); }
+.key-target .muted { font-size: 12.5px; }
 .key-form { display: flex; gap: 10px; flex-wrap: wrap; }
 /* Tenants page */
 .form-hint { margin-top: 6px; }
