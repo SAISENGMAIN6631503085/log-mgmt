@@ -1,22 +1,10 @@
 import { FormEvent, KeyboardEvent, useEffect, useState } from "react";
 import { api, ApiError, saveSession, User } from "../api";
 import { Icon } from "../components/Icon";
+import { IngestPreview } from "../components/IngestPreview";
 
-// Split layout: a dark product panel (what the tool does, shown as a console of log lines like
-// the ones it handles) and a plain sign-in form. The log lines are decoration only (aria-hidden).
-const STREAM: { sev: "crit" | "high" | "med" | "low"; src: string; text: string }[] = [
-  { sev: "crit", src: "crowdstrike", text: "malware_detected  host=WS-071  process=mimikatz.exe  action=quarantine" },
-  { sev: "high", src: "ad", text: "logon_failure  user=administrator  ip=88.198.10.118  ×6 in 1 min" },
-  { sev: "low", src: "firewall", text: "allow  10.0.1.24:52144 → 10.0.2.10:443  proto=tcp" },
-  { sev: "med", src: "firewall", text: "deny  113.160.10.118 → 10.0.1.10:22  policy=Block-SSH" },
-  { sev: "low", src: "m365", text: "UserLoggedIn  user=erin@contoso.com  ip=1.46.10.5" },
-  { sev: "low", src: "aws", text: "RunInstances  region=ap-southeast-1  user=deploy-bot" },
-  { sev: "med", src: "network", text: "link_down  core-sw01  interface=Gi1/0/17" },
-  { sev: "high", src: "api", text: "login_failed  service=payments-api  user=dave  status=401" },
-  { sev: "low", src: "ad", text: "logon_success  user=carol  host=DC01" },
-  { sev: "low", src: "firewall", text: "allow  10.0.3.45:61022 → 8.8.8.8:53  proto=udp" },
-];
-
+// Split layout: a dark product panel showing what the tool does (logs from many systems turned
+// into one format, and an alert when they add up to an attack) and a plain sign-in form.
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
 export function Login({ onLogin }: { onLogin: (user: User) => void }) {
@@ -75,35 +63,12 @@ export function Login({ onLogin }: { onLogin: (user: User) => void }) {
         </div>
 
         <div className="login-hero-copy">
-          <h2>Every security event, one place to look.</h2>
-          <p>Firewalls, servers, cloud and endpoints, collected and searchable in seconds, with alerts when something looks wrong.</p>
+          <h2>Every system writes logs its own way. Read them all as one.</h2>
+          <p>Firewalls, Windows servers, AWS, Microsoft 365 and CrowdStrike are collected, put into one
+            shape you can search together, and watched for attacks that only show up when you see them side by side.</p>
         </div>
 
-        <div className="console" aria-hidden="true">
-          <div className="console-head">
-            <span className="console-dot" />
-            <span>Incoming events</span>
-            <span className="console-sources">7 sources</span>
-          </div>
-          <div className="log-stream">
-            {/* Listed twice so the slow scroll loops without a jump */}
-            <div className="log-stream-track">
-              {[...STREAM, ...STREAM].map((l, i) => (
-                <div key={i} className="log-line">
-                  <span className={`log-sev ${l.sev}`} />
-                  <span className="log-src">{l.src}</span>
-                  <span className="log-text">{l.text}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <ul className="login-hero-facts">
-          <li><strong>7</strong>log sources</li>
-          <li><strong>60 s</strong>between alert checks</li>
-          <li><strong>7 days</strong>of searchable history</li>
-        </ul>
+        <IngestPreview />
       </aside>
 
       <main className="login-main">

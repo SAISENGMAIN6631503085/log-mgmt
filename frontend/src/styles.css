@@ -607,27 +607,55 @@ tr.revoked td { color: var(--muted); }
 .login-hero-copy h2 { margin: 0 0 14px; max-width: 13em; text-wrap: balance; font-size: clamp(30px, 3.1vw, 42px); line-height: 1.1;
   font-weight: 600; letter-spacing: -0.03em; color: #ffffff; }
 .login-hero-copy p { margin: 0; max-width: 34em; color: #a3adba; font-size: 15px; line-height: 1.65; }
-/* The console: a framed window of incoming log lines. */
-.console { flex: 1 1 0; min-height: 180px; display: flex; flex-direction: column; border-radius: 10px; overflow: hidden;
+/* The ingest preview: raw logs arrive in their own formats and snap into one row shape.
+   Raw text is mono and dim, converted rows are sans and aligned, so the change of type itself
+   shows "many formats -> one format". Fixed graphite colours, like the rest of the panel. */
+.ingest-preview { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; border-radius: 12px; overflow: hidden;
   border: 1px solid rgba(230, 234, 240, 0.09); background: #0b0f14; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35); }
-.console-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; font-size: 12px; color: #a3adba;
+.ip-head { display: flex; align-items: center; gap: 9px; padding: 11px 16px; font-size: 12.5px; color: #a3adba;
   border-bottom: 1px solid rgba(230, 234, 240, 0.07); background: #121820; }
-.console-dot { width: 7px; height: 7px; border-radius: 50%; background: #2dd4bf; box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15); }
-.console-sources { margin-left: auto; color: #6f7a88; }
-.log-stream { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden;
-  -webkit-mask-image: linear-gradient(transparent, #000 14%, #000 86%, transparent);
-  mask-image: linear-gradient(transparent, #000 14%, #000 86%, transparent); }
-.log-stream-track { padding: 6px 0; animation: log-scroll 40s linear infinite; }
-@keyframes log-scroll { from { transform: translateY(0); } to { transform: translateY(-50%); } }
-@media (prefers-reduced-motion: reduce) { .log-stream-track { animation: none; } }
-.log-line { display: grid; grid-template-columns: 8px 88px 1fr; gap: 12px; align-items: center; padding: 6px 14px;
-  font-family: var(--mono); font-size: 12px; color: #a3adba; white-space: nowrap; }
-.log-text { overflow: hidden; text-overflow: ellipsis; }
-.log-src { color: #2dd4bf; opacity: 0.75; }
-.log-sev { width: 7px; height: 7px; border-radius: 50%; background: #3b4552; }
-.log-sev.crit { background: #ff6b5e; } .log-sev.high { background: #e8873a; } .log-sev.med { background: #c9a35a; }
-.login-hero-facts { list-style: none; margin: 0; padding: 0; display: flex; gap: 36px; color: #7d8794; font-size: 12.5px; }
-.login-hero-facts strong { display: block; margin-bottom: 2px; color: #ffffff; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+.ip-live { width: 7px; height: 7px; border-radius: 50%; background: #2dd4bf; box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15); }
+.ip-sim { margin-left: auto; color: #6f7a88; }
+.ip-rows { list-style: none; margin: 0; padding: 6px 0; flex: 1 1 0; min-height: 0; display: flex; flex-direction: column;
+  justify-content: flex-end; overflow: hidden;
+  -webkit-mask-image: linear-gradient(transparent, #000 22%); mask-image: linear-gradient(transparent, #000 22%); }
+.ip-row { flex: none; }
+.ip-row { display: grid; gap: 5px; padding: 10px 16px; border-top: 1px solid rgba(230, 234, 240, 0.045);
+  animation: ip-arrive 420ms ease-out both; }
+.ip-row:first-child { border-top: none; }
+@keyframes ip-arrive { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.ip-raw { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono);
+  font-size: 11px; color: #5c6775; transition: font-size 300ms ease, color 300ms ease; }
+.ip-fields { display: grid; grid-template-columns: 62px 108px 116px minmax(0, 1fr) auto; gap: 14px; align-items: baseline;
+  font-size: 13.5px; color: #c9d1db; transition: opacity 300ms ease, transform 300ms ease; }
+.ip-time { font-variant-numeric: tabular-nums; color: #7d8794; }
+.ip-source { color: #2dd4bf; }
+.ip-action { color: #e6eaf0; font-weight: 500; }
+.ip-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ip-addr { font-variant-numeric: tabular-nums; color: #a3adba; white-space: nowrap; }
+.ip-flag { margin-right: 6px; }
+.ip-internal { margin-right: 7px; padding: 1px 6px; border-radius: 4px; font-size: 11px; color: #7d8794;
+  background: #1a212b; vertical-align: 1px; }
+.ip-row.is-failed .ip-action { color: #f0a35e; }
+/* Just arrived: shown as sent, before conversion. */
+.ip-row.is-raw { background: rgba(45, 212, 191, 0.05); }
+.ip-row.is-raw .ip-raw { font-size: 12.5px; color: #e6eaf0; }
+.ip-row.is-raw .ip-fields { opacity: 0; transform: translateY(-4px); }
+
+.ip-watch { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-top: 1px solid rgba(230, 234, 240, 0.07);
+  background: #121820; font-size: 13px; color: #a3adba; transition: background 400ms ease, color 400ms ease; }
+.ip-watch p { margin: 0; }
+.ip-watch strong { color: #e6eaf0; font-weight: 600; }
+.ip-meter { display: flex; gap: 4px; flex: none; }
+.ip-meter span { width: 18px; height: 6px; border-radius: 3px; background: #2a3340; transition: background 300ms ease; }
+.ip-meter span.on { background: #f0a35e; }
+.ip-watch.is-alert { background: #3a1517; color: #f3c5c1; }
+.ip-watch.is-alert strong { color: #ffffff; margin-right: 4px; }
+.ip-watch.is-alert .ip-meter span { background: #ff6b5e; }
+@media (prefers-reduced-motion: reduce) {
+  .ip-row { animation: none; }
+  .ip-raw, .ip-fields, .ip-watch, .ip-meter span { transition: none; }
+}
 
 .login-main { display: grid; place-items: center; padding: 48px 24px; }
 .login-form { width: 100%; max-width: 372px; display: flex; flex-direction: column; gap: 18px; }

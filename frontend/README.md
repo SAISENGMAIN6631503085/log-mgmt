@@ -78,9 +78,15 @@ Below 900 px the sidebar becomes a row of tabs above the top bar.
   - All colours are CSS tokens in `src/styles.css`. Charts read the computed tokens (SVG attributes
     can't use `var()`) and update when the theme changes.
 - **Times** are stored in UTC and shown in the viewer's local time zone.
-- **Login page**: a split screen. On the left, a dark product panel with a slowly scrolling sample
-  log stream (decoration only, hidden from screen readers, and still if the system asks for reduced
-  motion); on the right, a plain form with a show/hide password button. On phones only the form shows.
+- **Login page**: a split screen. On the left, a dark product panel shows what the product does
+  (`components/IngestPreview.tsx`): logs arrive in their own formats (syslog line, Windows CSV row,
+  Microsoft 365 / AWS / app JSON), each turns into the same row (time, source, action, who, IP with
+  flag; internal addresses get a grey "internal" tag instead, since they belong to no country), and failed sign-ins from one address, sent by four different systems, fill a 5-step meter
+  until a brute-force alert appears. Raw logs are set in mono and converted rows in sans, so the
+  change of type shows the conversion. It's a short scripted loop with made-up events, labelled
+  "Simulated events", hidden from screen readers, and a still final frame if the system asks for
+  reduced motion. On the right, a plain form (show/hide password, Caps Lock warning, a countdown
+  after too many failed sign-ins). On phones only the form shows.
 
 ## Development
 In Docker the app is built to static files and served by a small Caddy (`frontend/Caddyfile`).

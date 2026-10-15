@@ -98,7 +98,9 @@ All images run on linux/amd64 and linux/arm64.
 
 ## Extras beyond the assignment
 - **Country enrichment (GeoIP):** each event's source IP gets a country at ingest (DB-IP Lite, CC BY 4.0),
-  shown as flags in Search and Alerts, a "Top countries" table and a country filter.
+  shown as flags in Search and Alerts, a "Top countries" table and a country filter. Only public
+  internet addresses have a country: internal ones (10.x, 192.168.x, 172.16–31.x) and the example
+  ranges in the assignment samples (203.0.113.x, 198.51.100.x) correctly show no flag.
 - **Three detection rules** (brute force, firewall scan, malware), tunable per tenant on the **Rules** page.
 - **Add logs** page (file upload in the browser) and an **API keys** page (create, show once, revoke).
 - **Live demo traffic:** with `COMPOSE_PROFILES=demo`, a simulator keeps the demo fresh. Its
